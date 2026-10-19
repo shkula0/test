@@ -183,32 +183,59 @@ p { margin: 0 0 0.5rem; }
 /* ---------- Plan ---------- */
 
 .day h2 { margin: 6px 4px 8px; color: var(--accent); text-transform: uppercase; font-size: 0.85rem; letter-spacing: 0.06em; }
-.exercises { list-style: none; padding: 0; counter-reset: ex; }
-.exercises li {
-  counter-increment: ex;
-  display: grid;
-  grid-template-columns: 28px 1fr;
-  column-gap: 8px;
-  padding: 12px 16px;
-}
-.exercises li + li { border-top: 1px solid var(--border); }
-.exercises li::before {
-  content: counter(ex);
-  grid-row: span 3;
-  width: 24px;
-  height: 24px;
-  border-radius: 50%;
-  display: grid;
+.exercises { list-style: none; padding: 0; }
+.exercises > li { padding: 12px 16px; }
+.exercises > li + li { border-top: 1px solid var(--border); }
+.exercises ol { list-style: none; padding: 0; margin: 0; }
+
+.ex-label {
+  flex: none;
+  min-width: 30px;
+  height: 26px;
+  padding: 0 6px;
+  border-radius: 8px;
+  display: inline-grid;
   place-items: center;
   font-size: 0.8rem;
   font-weight: 700;
+  font-variant-numeric: tabular-nums;
   background: var(--bg);
   color: var(--muted);
 }
-.exercises li > * { grid-column: 2; }
+
+.superset { background: var(--accent-soft); }
+.superset .ex-label { background: var(--accent); color: var(--accent-text); }
+.superset .thumb-empty { background: var(--surface); }
+.superset-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 6px;
+  color: var(--accent);
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+.superset-head .icon { width: 16px; height: 16px; }
+.superset ol { border-left: 3px solid var(--accent); padding-left: 10px; margin-left: 13px; }
+.superset ol li { padding: 8px 0; }
+.superset ol li + li { border-top: 1px dashed color-mix(in srgb, var(--accent) 40%, transparent); }
+
 .ex-details { font-weight: 600; color: var(--accent); font-variant-numeric: tabular-nums; }
 
 .exercise-edit { display: flex; flex-direction: column; gap: 10px; }
+.exercise-edit .ex-label { margin-right: 6px; }
+.exercise-edit.in-superset { border-left: 4px solid var(--accent); }
+.exercise-edit.in-superset .ex-label { background: var(--accent); color: var(--accent-text); }
+.exercise-edit.joined { margin-top: -10px; border-top-left-radius: 0; border-top-right-radius: 0; border-top: 1px dashed var(--accent); }
+.superset-toggle {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  color: var(--accent);
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+.superset-toggle input { width: 20px; height: 20px; margin: 0; accent-color: var(--accent); }
 .day-input { max-width: 140px; font-weight: 600; }
 
 /* ---------- Biblioteka ćwiczeń ---------- */

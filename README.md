@@ -2,7 +2,7 @@
 
 Aplikacja na telefon (PWA) dla trenera personalnego i jego podopiecznych.
 
-- **Trener** układa plany treningowe (dni, ćwiczenia, serie, powtórzenia, ciężar, przerwy, wskazówki) i widzi postępy każdego podopiecznego.
+- **Trener** układa plany treningowe (dni, ćwiczenia, superserie A1/A2/A3, serie, powtórzenia, ciężar, przerwy, wskazówki) i widzi postępy każdego podopiecznego.
 - **Podopieczny** widzi swoje plany i zapisuje pomiary ciała (waga, talia, % tłuszczu) oraz wyniki w ćwiczeniach. Na tej podstawie powstają wykresy, m.in. szacowanego ciężaru maksymalnego (1RM).
 - **Biblioteka ćwiczeń**: bazowy zestaw ponad 40 ćwiczeń, a do tego własne ćwiczenia trenera ze zdjęciem lub filmem (plik z telefonu albo link do YouTube) i opisem techniki. Ćwiczenie można udostępnić innym trenerom. Podopieczny klika ćwiczenie w planie i widzi, jak je wykonać.
 - Podopieczni dołączają do trenera przez **link z kodem zaproszenia**.
@@ -22,7 +22,7 @@ python3 -m http.server 8000
 ### 1. Baza danych (Supabase, darmowy plan)
 
 1. Załóż konto na <https://supabase.com> i utwórz nowy projekt (region np. *Central EU – Frankfurt*).
-2. Otwórz **SQL Editor → New query**, wklej całą zawartość pliku [`supabase/schema.sql`](supabase/schema.sql) i kliknij **Run**. Potem w nowym zapytaniu zrób to samo z plikiem [`supabase/002_biblioteka_cwiczen.sql`](supabase/002_biblioteka_cwiczen.sql) (biblioteka ćwiczeń i miejsce na zdjęcia/filmy).
+2. Otwórz **SQL Editor → New query**, wklej całą zawartość pliku [`supabase/schema.sql`](supabase/schema.sql) i kliknij **Run**. Potem w nowych zapytaniach zrób to samo kolejno z plikami [`supabase/002_biblioteka_cwiczen.sql`](supabase/002_biblioteka_cwiczen.sql) (biblioteka ćwiczeń i miejsce na zdjęcia/filmy) i [`supabase/003_superserie.sql`](supabase/003_superserie.sql) (superserie w planach).
 3. W **Authentication → Sign In / Providers → Email** zdecyduj o potwierdzaniu adresu email:
    - wyłącz **Confirm email**, jeśli podopieczni mają od razu korzystać z aplikacji po rejestracji, **albo**
    - zostaw włączone. Wtedy po rejestracji przyjdzie mail z linkiem. Ustaw wcześniej **Authentication → URL Configuration → Site URL** na adres swojej aplikacji (krok 3).
@@ -72,6 +72,7 @@ Po zmianie plików podbij wersję w [`sw.js`](sw.js) (`const CACHE = 'trener-v2'
 | `js/chart.js` | Wykresy SVG |
 | `supabase/schema.sql` | Tabele, rejestracja z kodem trenera, uprawnienia (RLS) |
 | `supabase/002_biblioteka_cwiczen.sql` | Biblioteka ćwiczeń, bazowy zestaw, Storage na zdjęcia i filmy |
+| `supabase/003_superserie.sql` | Superserie (A1, A2, A3) w planach |
 | `vendor/supabase.js` | Biblioteka supabase-js 2.118.0 (licencja MIT) |
 
 ## Pomysły na kolejne wersje

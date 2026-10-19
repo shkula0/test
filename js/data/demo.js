@@ -276,6 +276,8 @@ function seed() {
     media_url: null, media_type: null, video_url: '', is_public: true, created_at: now(), updated_at: now(),
   });
   const libId = (name) => exercises_lib.find((e) => e.name === name)?.id ?? null;
+  // Przykładowe superserie: w dniu A ćwiczenia B1–B2, w dniu B ćwiczenia B1–B3.
+  const SUPERSET_WITH_PREVIOUS = ['Wiosłowanie hantlem w podporze', 'Podciąganie z gumą', 'Wykroki chodzone'];
   const ex = (day, name, sets, reps, weight, rest, notes = '') => ({ day, name, sets, reps, weight, rest, notes, exercise_id: libId(name) });
   const exercises = [
     ex('Dzień A', 'Przysiad ze sztangą', '4', '6–8', '60 kg', '2 min', 'Tempo 3-1-1'),
@@ -286,7 +288,7 @@ function seed() {
     ex('Dzień B', 'Wyciskanie hantli nad głowę', '3', '10', '10 kg', '90 s'),
     ex('Dzień B', 'Podciąganie z gumą', '3', 'max', '', '2 min'),
     ex('Dzień B', 'Wykroki chodzone', '3', '12', '2×10 kg', '90 s', 'Na każdą nogę'),
-  ].map((e, i) => ({ ...e, id: uid(), plan_id: plan.id, position: i }));
+  ].map((e, i) => ({ ...e, id: uid(), plan_id: plan.id, position: i, superset: SUPERSET_WITH_PREVIOUS.includes(e.name) }));
 
   const body_metrics = [];
   const lift_records = [];

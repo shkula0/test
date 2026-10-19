@@ -333,8 +333,12 @@ async function viewPlanEditor(planId, newClientId) {
 
   const library = await api.listExercises();
   const FIELDS = ['day', 'name', 'sets', 'reps', 'weight', 'rest', 'notes'];
-  const blank = (day = 'Dzień A') => ({ day, name: '', sets: '', reps: '', weight: '', rest: '', notes: '', exercise_id: null });
-  const rows = existing?.exercises.map((e) => ({ ...Object.fromEntries(FIELDS.map((f) => [f, e[f] ?? ''])), exercise_id: e.exercise_id ?? null }))
+  const blank = (day = 'Dzień A') => ({ day, name: '', sets: '', reps: '', weight: '', rest: '', notes: '', exercise_id: null, superset: false });
+  const rows = existing?.exercises.map((e) => ({
+    ...Object.fromEntries(FIELDS.map((f) => [f, e[f] ?? ''])),
+    exercise_id: e.exercise_id ?? null,
+    superset: Boolean(e.superset),
+  }))
     ?? [blank()];
 
   renderShell({
@@ -366,9 +370,15 @@ async function viewPlanEditor(planId, newClientId) {
   // Inputy mają data-field zamiast name, żeby przeglądarka nie podpowiadała tu imienia i nazwiska.
   const rowsEl = $('#rows');
   const drawRows = () => {
+    const labels = planLabels(rows);
     rowsEl.innerHTML = html`${rows.map((r, i) => html`
-      <fieldset class="card exercise-edit" data-index="${i}">
+      <fieldset class="card exercise-edit ${labels[i].size > 1 ? 'in-superset' : ''} ${labels[i].joined ? 'joined' : ''}" data-index="${i}">
+        ${labels[i].canJoin ? html`<label class="superset-toggle">
+          <input type="checkbox" data-superset ${r.superset ? 'checked' : ''}>
+          <span>Superseria z poprzednim ćwiczeniem</span>
+        </label>` : ''}
         <div class="row">
+          <span class="ex-label" title="Oznaczenie w planie">${labels[i].label}</span>
           <input class="day-input" data-field="day" value="${r.day}" placeholder="Dzień" aria-label="Dzień" autocomplete="off">
           <span class="grow"></span>
           <button type="button" class="icon-btn" data-move="-1" aria-label="Przesuń w górę" ${i === 0 ? 'disabled' : ''}>${icons.up}</button>
@@ -443,6 +453,16 @@ async function viewPlanEditor(planId, newClientId) {
       refreshHint(fieldset);
     }
   });
+  rowsEl.addEventListener('change', (event) => {
+    const fieldset = event.target.closest('[data-index]');
+    if (!fieldset) return;
+    if ('superset' in event.target.dataset) {
+      rows[fieldset.dataset.index].superset = event.target.checked;
+      drawRows();
+    } else if (event.target.dataset.field === 'day') {
+      drawRows();
+    }
+  });
   rowsEl.addEventListener('focusin', (event) => {
     if (event.target.dataset.field === 'name') showSuggestions(event.target.closest('[data-index]'));
   });
@@ -503,9 +523,12 @@ async function viewPlanEditor(planId, newClientId) {
   $('#plan-form').addEventListener('submit', async (event) => {
     event.preventDefault();
     const { planName, planNotes } = formData(event.target);
-    const exercises = rows
-      .map((r) => ({ ...Object.fromEntries(FIELDS.map((f) => [f, r[f].trim()])), exercise_id: r.exercise_id }))
+    const filled = rows
+      .map((r) => ({ ...Object.fromEntries(FIELDS.map((f) => [f, r[f].trim()])), exercise_id: r.exercise_id, superset: r.superset }))
       .filter((r) => r.name);
+    // Superseria tylko tam, gdzie jest poprzednie ćwiczenie w tym samym dniu.
+    const labels = planLabels(filled);
+    const exercises = filled.map((r, i) => ({ ...r, superset: r.superset && labels[i].canJoin }));
     await submitting(event.target, async () => {
       const id = await api.savePlan({ id: planId, client_id: clientId, name: planName.trim(), notes: planNotes.trim() }, exercises);
       toast('Plan zapisany', 'success');
@@ -518,6 +541,41 @@ async function viewPlanEditor(planId, newClientId) {
 // Plan treningowy (trener i podopieczny)
 // ============================================================
 
+// Oznaczenia ćwiczeń w każdym dniu: pojedyncze A, B…, superserie C1, C2, C3.
+// Ćwiczenie z superset = true wykonuje się razem z poprzednim (w tym samym dniu).
+function planLabels(exercises) {
+  const groups = [];
+  let letter = -1;
+  exercises.forEach((ex, i) => {
+    const prev = exercises[i - 1];
+    const sameDay = prev && (prev.day || '') === (ex.day || '');
+    if (!sameDay) letter = -1;
+    if (ex.superset && sameDay) {
+      groups.at(-1).items.push(i);
+    } else {
+      letter += 1;
+      groups.push({ letter: letterFor(letter), items: [i] });
+    }
+  });
+  const labels = [];
+  for (const group of groups) {
+    group.items.forEach((index, n) => {
+      labels[index] = {
+        label: group.items.length > 1 ? `${group.letter}${n + 1}` : group.letter,
+        joined: n > 0,
+        size: group.items.length,
+        canJoin: index > 0 && (exercises[index - 1].day || '') === (exercises[index].day || ''),
+      };
+    });
+  }
+  return labels;
+}
+
+function letterFor(n) {
+  const char = (i) => String.fromCharCode(65 + i);
+  return n < 26 ? char(n) : char(Math.floor(n / 26) - 1) + char(n % 26);
+}
+
 async function viewPlan(planId) {
   const [data, library] = await Promise.all([api.getPlan(planId), api.listExercises()]);
   if (!data) return viewNotFound();
@@ -525,12 +583,29 @@ async function viewPlan(planId) {
   const isCoach = me.role === 'coach';
   const libraryById = new Map(library.map((e) => [e.id, e]));
 
+  // Dni → grupy (pojedyncze ćwiczenie albo superseria) → ćwiczenia z oznaczeniem.
+  const labels = planLabels(exercises);
   const days = [];
-  for (const ex of exercises) {
+  exercises.forEach((ex, i) => {
     const day = ex.day || 'Ćwiczenia';
-    if (days.at(-1)?.day !== day) days.push({ day, items: [] });
-    days.at(-1).items.push(ex);
-  }
+    if (days.at(-1)?.day !== day) days.push({ day, groups: [] });
+    const groups = days.at(-1).groups;
+    if (!labels[i].joined) groups.push([]);
+    groups.at(-1).push({ ex, label: labels[i].label });
+  });
+
+  const exerciseItem = ({ ex, label }) => {
+    const info = libraryById.get(ex.exercise_id);
+    const body = html`
+      <strong>${ex.name}</strong>
+      ${details(ex) ? html`<span class="ex-details">${details(ex)}</span>` : ''}
+      ${ex.notes ? html`<span class="muted small">${ex.notes}</span>` : ''}
+      ${info && (hasMedia(info) || info.description) ? html`<span class="ex-link">${icons.play} ${hasMedia(info) ? 'Zobacz, jak wykonać' : 'Opis techniki'}</span>` : ''}`;
+    const content = html`<span class="ex-label">${label}</span><span class="ex-text">${body}</span>${info ? exerciseThumb(info) : ''}`;
+    return info
+      ? html`<li><a class="ex-row" href="#/exercise/${info.id}?back=/plan/${plan.id}">${content}</a></li>`
+      : html`<li><span class="ex-row">${content}</span></li>`;
+  };
 
   const details = (ex) => [
     ex.sets && ex.reps ? `${ex.sets} × ${ex.reps}` : ex.sets ? `${ex.sets} serie` : ex.reps ? `${ex.reps} powt.` : '',
@@ -544,20 +619,15 @@ async function viewPlan(planId) {
     nav: isCoach ? 'clients' : 'plans',
     body: html`
       ${plan.notes ? html`<section class="card note">${plan.notes}</section>` : ''}
-      ${days.length ? days.map(({ day, items }) => html`
+      ${days.length ? days.map(({ day, groups }) => html`
         <section class="day">
           <h2>${day}</h2>
-          <ol class="card exercises">${items.map((ex) => {
-            const info = libraryById.get(ex.exercise_id);
-            const body = html`
-              <strong>${ex.name}</strong>
-              ${details(ex) ? html`<span class="ex-details">${details(ex)}</span>` : ''}
-              ${ex.notes ? html`<span class="muted small">${ex.notes}</span>` : ''}
-              ${info && (hasMedia(info) || info.description) ? html`<span class="ex-link">${icons.play} ${hasMedia(info) ? 'Zobacz, jak wykonać' : 'Opis techniki'}</span>` : ''}`;
-            return info
-              ? html`<li><a class="ex-row" href="#/exercise/${info.id}?back=/plan/${plan.id}"><span class="ex-text">${body}</span>${exerciseThumb(info)}</a></li>`
-              : html`<li><span class="ex-row"><span class="ex-text">${body}</span></span></li>`;
-          })}
+          <ol class="card exercises">${groups.map((group) => (group.length > 1
+            ? html`<li class="superset">
+                <p class="superset-head">${icons.link} Superseria – wykonuj jedno po drugim, bez przerwy między ćwiczeniami</p>
+                <ol>${group.map(exerciseItem)}</ol>
+              </li>`
+            : exerciseItem(group[0])))}
           </ol>
         </section>`) : emptyState('Ten plan nie ma jeszcze ćwiczeń.')}
       <p class="muted small center">Ostatnia zmiana: ${formatDate(plan.updated_at)}</p>
