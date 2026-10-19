@@ -78,7 +78,7 @@ function renderShell({ title, back, body, nav }) {
     <header class="topbar">
       ${back
         ? html`<a class="icon-btn" href="#${back}" aria-label="Wstecz">${icons.back}</a>`
-        : html`<span class="topbar-logo">${icons.logo}</span>`}
+        : html`<img class="topbar-logo" src="icons/logo-256.png" alt="">`}
       <h1>${title}</h1>
       ${api.mode === 'demo' ? html`<span class="badge" title="Dane zapisywane tylko w tej przeglądarce">DEMO</span>` : ''}
     </header>
@@ -116,7 +116,7 @@ function viewLogin() {
   const demo = api.mode === 'demo';
   app.innerHTML = html`
     <main class="auth">
-      <div class="auth-logo">${icons.logo}</div>
+      <img class="auth-logo" src="icons/logo-256.png" alt="Logo">
       <h1>Trener</h1>
       <p class="muted">Plany treningowe i postępy w jednym miejscu.</p>
 
@@ -159,7 +159,7 @@ function viewLogin() {
 function viewRegister(code) {
   app.innerHTML = html`
     <main class="auth">
-      <div class="auth-logo">${icons.logo}</div>
+      <img class="auth-logo" src="icons/logo-256.png" alt="Logo">
       <h1>Załóż konto</h1>
       <form class="card stack" id="register-form">
         <fieldset class="segmented">
@@ -217,7 +217,7 @@ function viewRegister(code) {
         coachCode: data.role === 'client' ? data.coachCode : '',
       });
       if (needsConfirmation) {
-        app.innerHTML = html`<main class="auth"><div class="auth-logo">${icons.logo}</div>
+        app.innerHTML = html`<main class="auth"><img class="auth-logo" src="icons/logo-256.png" alt="Logo">
           <h1>Sprawdź pocztę</h1>
           <p>Wysłaliśmy link potwierdzający na <strong>${data.email}</strong>. Po kliknięciu w link zaloguj się.</p>
           <a class="btn" href="#/login">Przejdź do logowania</a></main>`;
