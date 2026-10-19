@@ -1,6 +1,8 @@
 import { api } from './data/index.js';
 import { lineChart } from './chart.js';
 import { icons } from './icons.js';
+import { viewLibrary, viewExercise, viewExerciseEditor, normalize } from './library.js';
+import { exerciseThumb, hasMedia } from './media.js';
 import {
   $, $$, html, raw, toast, todayIso, formatDate, formatNumber, initials,
   estimatedOneRepMax, formData, toNumber,
@@ -9,11 +11,6 @@ import {
 const app = document.getElementById('app');
 let me = null;
 let installPrompt = null;
-
-const COMMON_EXERCISES = [
-  'Przysiad ze sztangą', 'Martwy ciąg', 'Martwy ciąg rumuński', 'Wyciskanie sztangi leżąc',
-  'Wyciskanie żołnierskie', 'Wiosłowanie sztangą', 'Podciąganie', 'Hip thrust', 'Pompki na poręczach',
-];
 
 window.addEventListener('beforeinstallprompt', (event) => {
   event.preventDefault();
@@ -55,6 +52,11 @@ async function router() {
     if (section === 'plan' && id && action === 'edit' && isCoach) return viewPlanEditor(id);
     if (section === 'plan' && id) return viewPlan(id);
     if (section === 'progress' && !isCoach) return viewMyProgress();
+    const ctx = { me, renderShell, emptyState, submitting, go, viewNotFound };
+    if (section === 'exercises' && isCoach) return viewLibrary(ctx, params);
+    if (section === 'exercise' && id === 'new' && isCoach) return viewExerciseEditor(ctx, null);
+    if (section === 'exercise' && id && action === 'edit' && isCoach) return viewExerciseEditor(ctx, id);
+    if (section === 'exercise' && id) return viewExercise(ctx, id, params);
     if (section === 'account') return viewAccount();
     if (section === 'login' || section === 'register') return go('/');
     return viewNotFound();
@@ -90,7 +92,7 @@ function renderShell({ title, back, body, nav }) {
 
 function navBar(active) {
   const items = me.role === 'coach'
-    ? [['clients', '/', 'Podopieczni', icons.users], ['account', '/account', 'Konto', icons.user]]
+    ? [['clients', '/', 'Podopieczni', icons.users], ['library', '/exercises', 'Ćwiczenia', icons.logo], ['account', '/account', 'Konto', icons.user]]
     : [['plans', '/', 'Plany', icons.list], ['progress', '/progress', 'Postępy', icons.chart], ['account', '/account', 'Konto', icons.user]];
   return html`<nav class="tabbar">
     ${items.map(([key, href, label, icon]) => html`
@@ -329,8 +331,10 @@ async function viewPlanEditor(planId, newClientId) {
   const client = await api.getProfile(clientId);
   if (!client || client.coach_id !== me.id) return viewNotFound();
 
-  const blank = (day = 'Dzień A') => ({ day, name: '', sets: '', reps: '', weight: '', rest: '', notes: '' });
-  const rows = existing?.exercises.map(({ day, name, sets, reps, weight, rest, notes }) => ({ day, name, sets, reps, weight, rest, notes }))
+  const library = await api.listExercises();
+  const FIELDS = ['day', 'name', 'sets', 'reps', 'weight', 'rest', 'notes'];
+  const blank = (day = 'Dzień A') => ({ day, name: '', sets: '', reps: '', weight: '', rest: '', notes: '', exercise_id: null });
+  const rows = existing?.exercises.map((e) => ({ ...Object.fromEntries(FIELDS.map((f) => [f, e[f] ?? ''])), exercise_id: e.exercise_id ?? null }))
     ?? [blank()];
 
   renderShell({
@@ -339,7 +343,7 @@ async function viewPlanEditor(planId, newClientId) {
     nav: 'clients',
     body: html`
       <p class="muted">Dla: <strong>${client.full_name}</strong></p>
-      <form id="plan-form" class="stack">
+      <form id="plan-form" class="stack" autocomplete="off">
         <section class="card stack">
           <label>Nazwa planu<input name="planName" value="${existing?.plan.name ?? ''}" placeholder="np. FBW – 3× w tygodniu" required></label>
           <label>Uwagi dla podopiecznego<textarea name="planNotes" rows="3" placeholder="Rozgrzewka, wskazówki, częstotliwość…">${existing?.plan.notes ?? ''}</textarea></label>
@@ -351,38 +355,137 @@ async function viewPlanEditor(planId, newClientId) {
       </form>`,
   });
 
+  const findInLibrary = (name) => library.find((e) => normalize(e.name) === normalize(name));
+  const linkHint = (r) => {
+    if (!r.name.trim()) return '';
+    const linked = library.find((e) => e.id === r.exercise_id);
+    if (!linked) return html`<span class="muted">Spoza biblioteki – bez zdjęcia i filmu.</span>`;
+    return hasMedia(linked) ? html`<span class="ok">✓ Z biblioteki, ze zdjęciem lub filmem</span>` : html`<span class="ok">✓ Z biblioteki</span>`;
+  };
+
+  // Inputy mają data-field zamiast name, żeby przeglądarka nie podpowiadała tu imienia i nazwiska.
   const rowsEl = $('#rows');
   const drawRows = () => {
     rowsEl.innerHTML = html`${rows.map((r, i) => html`
       <fieldset class="card exercise-edit" data-index="${i}">
         <div class="row">
-          <input class="day-input" name="day" value="${r.day}" placeholder="Dzień" aria-label="Dzień">
+          <input class="day-input" data-field="day" value="${r.day}" placeholder="Dzień" aria-label="Dzień" autocomplete="off">
           <span class="grow"></span>
           <button type="button" class="icon-btn" data-move="-1" aria-label="Przesuń w górę" ${i === 0 ? 'disabled' : ''}>${icons.up}</button>
           <button type="button" class="icon-btn" data-move="1" aria-label="Przesuń w dół" ${i === rows.length - 1 ? 'disabled' : ''}>${icons.down}</button>
           <button type="button" class="icon-btn danger" data-remove aria-label="Usuń ćwiczenie">${icons.trash}</button>
         </div>
-        <label>Ćwiczenie<input name="name" value="${r.name}" list="exercise-names" required></label>
-        <div class="grid-4">
-          <label>Serie<input name="sets" value="${r.sets}" inputmode="numeric"></label>
-          <label>Powt.<input name="reps" value="${r.reps}"></label>
-          <label>Ciężar<input name="weight" value="${r.weight}"></label>
-          <label>Przerwa<input name="rest" value="${r.rest}"></label>
+        <div class="combo">
+          <label>Ćwiczenie<input data-field="name" value="${r.name}" required autocomplete="off" placeholder="Zacznij pisać, aby wyszukać…"
+            role="combobox" aria-autocomplete="list" aria-expanded="false"></label>
+          <div class="combo-list" role="listbox" hidden></div>
+          <p class="combo-hint small">${linkHint(r)}</p>
         </div>
-        <label>Wskazówki<input name="notes" value="${r.notes}" placeholder="np. tempo, technika"></label>
-      </fieldset>`)}
-      <datalist id="exercise-names">${COMMON_EXERCISES.map((n) => html`<option value="${n}">`)}</datalist>`;
+        <div class="grid-4">
+          <label>Serie<input data-field="sets" value="${r.sets}" inputmode="numeric" autocomplete="off"></label>
+          <label>Powt.<input data-field="reps" value="${r.reps}" autocomplete="off"></label>
+          <label>Ciężar<input data-field="weight" value="${r.weight}" autocomplete="off"></label>
+          <label>Przerwa<input data-field="rest" value="${r.rest}" autocomplete="off"></label>
+        </div>
+        <label>Wskazówki<input data-field="notes" value="${r.notes}" placeholder="np. tempo, technika" autocomplete="off"></label>
+      </fieldset>`)}`;
   };
   drawRows();
 
+  const showSuggestions = (fieldset) => {
+    const i = Number(fieldset.dataset.index);
+    const query = normalize(rows[i].name);
+    const matches = library
+      .filter((e) => !query || normalize(e.name).includes(query))
+      .sort((a, b) => Number(normalize(b.name).startsWith(query)) - Number(normalize(a.name).startsWith(query)))
+      .slice(0, 8);
+    const exact = findInLibrary(rows[i].name);
+    const list = $('.combo-list', fieldset);
+    list.innerHTML = html`
+      ${matches.map((e) => html`<button type="button" class="combo-option" role="option" data-pick="${e.id}">
+        ${exerciseThumb(e)}<span class="grow">${e.name}<br><span class="muted small">${e.category}</span></span>
+      </button>`)}
+      ${rows[i].name.trim() && !exact ? html`<button type="button" class="combo-option combo-add" data-add-to-library>
+        ${icons.plus}<span class="grow">Dodaj „${rows[i].name.trim()}” do biblioteki</span></button>` : ''}
+      ${!matches.length && !rows[i].name.trim() ? html`<p class="muted small combo-empty">Biblioteka jest pusta.</p>` : ''}`;
+    list.hidden = false;
+    $('[data-field=name]', fieldset).setAttribute('aria-expanded', 'true');
+  };
+
+  const hideSuggestions = (fieldset) => {
+    $('.combo-list', fieldset).hidden = true;
+    $('[data-field=name]', fieldset).setAttribute('aria-expanded', 'false');
+  };
+
+  const refreshHint = (fieldset) => {
+    $('.combo-hint', fieldset).innerHTML = linkHint(rows[fieldset.dataset.index]);
+  };
+
+  const pick = (fieldset, exercise) => {
+    const row = rows[fieldset.dataset.index];
+    row.name = exercise.name;
+    row.exercise_id = exercise.id;
+    $('[data-field=name]', fieldset).value = exercise.name;
+    hideSuggestions(fieldset);
+    refreshHint(fieldset);
+    $('[data-field=sets]', fieldset).focus();
+  };
+
   rowsEl.addEventListener('input', (event) => {
+    const field = event.target.dataset.field;
     const fieldset = event.target.closest('[data-index]');
-    rows[fieldset.dataset.index][event.target.name] = event.target.value;
+    if (!field || !fieldset) return;
+    const row = rows[fieldset.dataset.index];
+    row[field] = event.target.value;
+    if (field === 'name') {
+      row.exercise_id = findInLibrary(row.name)?.id ?? null;
+      showSuggestions(fieldset);
+      refreshHint(fieldset);
+    }
   });
-  rowsEl.addEventListener('click', (event) => {
+  rowsEl.addEventListener('focusin', (event) => {
+    if (event.target.dataset.field === 'name') showSuggestions(event.target.closest('[data-index]'));
+  });
+  rowsEl.addEventListener('focusout', (event) => {
+    if (event.target.dataset.field !== 'name') return;
+    const fieldset = event.target.closest('[data-index]');
+    // Opóźnienie, żeby kliknięcie w podpowiedź zdążyło się wykonać.
+    setTimeout(() => {
+      if (!fieldset.contains(document.activeElement) || document.activeElement.dataset.field !== 'name') hideSuggestions(fieldset);
+    }, 200);
+  });
+  rowsEl.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && event.target.dataset.field === 'name') hideSuggestions(event.target.closest('[data-index]'));
+  });
+  // Kliknięcie w podpowiedź nie powinno zabierać fokusu z pola (inaczej lista znika przed kliknięciem).
+  rowsEl.addEventListener('mousedown', (event) => {
+    if (event.target.closest('.combo-option')) event.preventDefault();
+  });
+
+  rowsEl.addEventListener('click', async (event) => {
     const button = event.target.closest('button');
     if (!button) return;
-    const i = Number(button.closest('[data-index]').dataset.index);
+    const fieldset = button.closest('[data-index]');
+    const i = Number(fieldset.dataset.index);
+    if (button.dataset.pick) {
+      pick(fieldset, library.find((e) => e.id === button.dataset.pick));
+      return;
+    }
+    if ('addToLibrary' in button.dataset) {
+      const name = rows[i].name.trim();
+      button.disabled = true;
+      try {
+        const id = await api.saveExercise({ name, category: '', description: '', video_url: '', is_public: false });
+        const created = await api.getExercise(id);
+        library.push(created);
+        pick(fieldset, created);
+        toast(`Dodano „${name}” do biblioteki – zdjęcie lub film dodasz w zakładce Ćwiczenia`, 'success');
+      } catch (error) {
+        toast(error.message, 'error');
+        button.disabled = false;
+      }
+      return;
+    }
     if (button.dataset.move) {
       const j = i + Number(button.dataset.move);
       [rows[i], rows[j]] = [rows[j], rows[i]];
@@ -394,14 +497,14 @@ async function viewPlanEditor(planId, newClientId) {
   $('#add-row').addEventListener('click', () => {
     rows.push(blank(rows.at(-1)?.day ?? 'Dzień A'));
     drawRows();
-    $$('[name=name]', rowsEl).at(-1).focus();
+    $$('[data-field=name]', rowsEl).at(-1).focus();
   });
 
   $('#plan-form').addEventListener('submit', async (event) => {
     event.preventDefault();
     const { planName, planNotes } = formData(event.target);
     const exercises = rows
-      .map((r) => Object.fromEntries(Object.entries(r).map(([k, v]) => [k, v.trim()])))
+      .map((r) => ({ ...Object.fromEntries(FIELDS.map((f) => [f, r[f].trim()])), exercise_id: r.exercise_id }))
       .filter((r) => r.name);
     await submitting(event.target, async () => {
       const id = await api.savePlan({ id: planId, client_id: clientId, name: planName.trim(), notes: planNotes.trim() }, exercises);
@@ -416,10 +519,11 @@ async function viewPlanEditor(planId, newClientId) {
 // ============================================================
 
 async function viewPlan(planId) {
-  const data = await api.getPlan(planId);
+  const [data, library] = await Promise.all([api.getPlan(planId), api.listExercises()]);
   if (!data) return viewNotFound();
   const { plan, exercises } = data;
   const isCoach = me.role === 'coach';
+  const libraryById = new Map(library.map((e) => [e.id, e]));
 
   const days = [];
   for (const ex of exercises) {
@@ -443,12 +547,17 @@ async function viewPlan(planId) {
       ${days.length ? days.map(({ day, items }) => html`
         <section class="day">
           <h2>${day}</h2>
-          <ol class="card exercises">${items.map((ex) => html`
-            <li>
+          <ol class="card exercises">${items.map((ex) => {
+            const info = libraryById.get(ex.exercise_id);
+            const body = html`
               <strong>${ex.name}</strong>
               ${details(ex) ? html`<span class="ex-details">${details(ex)}</span>` : ''}
               ${ex.notes ? html`<span class="muted small">${ex.notes}</span>` : ''}
-            </li>`)}
+              ${info && (hasMedia(info) || info.description) ? html`<span class="ex-link">${icons.play} ${hasMedia(info) ? 'Zobacz, jak wykonać' : 'Opis techniki'}</span>` : ''}`;
+            return info
+              ? html`<li><a class="ex-row" href="#/exercise/${info.id}?back=/plan/${plan.id}"><span class="ex-text">${body}</span>${exerciseThumb(info)}</a></li>`
+              : html`<li><span class="ex-row"><span class="ex-text">${body}</span></span></li>`;
+          })}
           </ol>
         </section>`) : emptyState('Ten plan nie ma jeszcze ćwiczeń.')}
       <p class="muted small center">Ostatnia zmiana: ${formatDate(plan.updated_at)}</p>
@@ -503,7 +612,7 @@ async function mountProgress(container, clientId) {
   const state = { metric: 'weight', exercise: null };
 
   async function draw() {
-    const [metrics, lifts] = await Promise.all([api.listMetrics(clientId), api.listLifts(clientId)]);
+    const [metrics, lifts, library] = await Promise.all([api.listMetrics(clientId), api.listLifts(clientId), api.listExercises()]);
     const exerciseNames = [...new Set(lifts.map((l) => l.exercise))].sort((a, b) => a.localeCompare(b, 'pl'));
     if (!exerciseNames.includes(state.exercise)) state.exercise = exerciseNames[0] ?? null;
 
@@ -567,7 +676,7 @@ async function mountProgress(container, clientId) {
           <summary>${icons.plus} Dodaj wynik</summary>
           <form id="lift-form" class="stack">
             <label>Data<input type="date" name="performed_on" value="${todayIso()}" required></label>
-            <label>Ćwiczenie<input name="exercise" list="lift-names" value="${state.exercise ?? ''}" required></label>
+            <label>Ćwiczenie<input name="exercise" list="lift-names" value="${state.exercise ?? ''}" required autocomplete="off"></label>
             <div class="grid-2">
               <label>Ciężar (kg)<input name="weight" inputmode="decimal" required></label>
               <label>Powtórzenia<input name="reps" type="number" min="1" inputmode="numeric" required></label>
@@ -575,7 +684,7 @@ async function mountProgress(container, clientId) {
             <label>Notatka<input name="note"></label>
             <button class="btn" type="submit">Zapisz wynik</button>
           </form>
-          <datalist id="lift-names">${[...new Set([...exerciseNames, ...COMMON_EXERCISES])].map((n) => html`<option value="${n}">`)}</datalist>
+          <datalist id="lift-names">${[...new Set([...exerciseNames, ...library.map((e) => e.name)])].map((n) => html`<option value="${n}">`)}</datalist>
         </details>
       </section>
 

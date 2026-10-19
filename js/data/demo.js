@@ -2,6 +2,21 @@
 // Pozwala obejrzeć aplikację bez konfigurowania Supabase.
 
 const STORAGE_KEY = 'trener-demo-v1';
+const DEMO_MAX_MEDIA = 3 * 1024 * 1024;
+
+// Bazowy zestaw ćwiczeń – ten sam co w supabase/002_biblioteka_cwiczen.sql.
+const BASE_EXERCISES = {
+  'Nogi': ['Przysiad ze sztangą', 'Przysiad przedni', 'Przysiad goblet', 'Przysiad bułgarski', 'Wykroki chodzone',
+    'Wypychanie na suwnicy', 'Prostowanie nóg na maszynie', 'Uginanie nóg na maszynie', 'Wspięcia na palce'],
+  'Pośladki i tył uda': ['Martwy ciąg', 'Martwy ciąg rumuński', 'Hip thrust', 'Most biodrowy', 'Odwodzenie nogi na wyciągu'],
+  'Klatka': ['Wyciskanie sztangi leżąc', 'Wyciskanie hantli na skosie', 'Rozpiętki z hantlami', 'Pompki', 'Pompki na poręczach'],
+  'Plecy': ['Podciąganie', 'Podciąganie z gumą', 'Ściąganie drążka do klatki', 'Wiosłowanie sztangą', 'Wiosłowanie hantlem',
+    'Wiosłowanie na wyciągu siedząc'],
+  'Barki': ['Wyciskanie żołnierskie', 'Wyciskanie hantli nad głowę', 'Unoszenie hantli bokiem', 'Face pull'],
+  'Ramiona': ['Uginanie ramion ze sztangą', 'Uginanie ramion z hantlami (młotkowe)', 'Prostowanie ramion na wyciągu', 'Wyciskanie francuskie'],
+  'Brzuch i core': ['Plank', 'Plank bokiem', 'Dead bug', 'Unoszenie nóg w zwisie', 'Pallof press'],
+  'Kondycja': ['Bieżnia', 'Rower stacjonarny', 'Wioślarz (ergometr)', 'Skakanka', 'Burpees'],
+};
 
 export function createDemoBackend() {
   let db = load();
@@ -10,7 +25,7 @@ export function createDemoBackend() {
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(db));
     } catch {
-      // Brak dostępu do localStorage (np. tryb prywatny) – dane zostają tylko w pamięci.
+      // Brak dostępu do localStorage (np. tryb prywatny lub brak miejsca) – dane zostają tylko w pamięci.
     }
   }
 
@@ -116,6 +131,55 @@ export function createDemoBackend() {
       save();
     },
 
+    async listExercises() {
+      const me = db.profiles.find((p) => p.id === db.session);
+      return db.exercises
+        .filter((e) => e.coach_id == null || e.is_public || e.coach_id === db.session || e.coach_id === me?.coach_id)
+        .sort((a, b) => a.name.localeCompare(b.name, 'pl'));
+    },
+
+    async getExercise(id) {
+      return db.exercises.find((e) => e.id === id) ?? null;
+    },
+
+    async saveExercise(exercise, { file, removeMedia } = {}) {
+      const fields = {
+        name: exercise.name,
+        category: exercise.category,
+        description: exercise.description,
+        video_url: exercise.video_url,
+        is_public: exercise.is_public,
+      };
+      if (file) {
+        if (file.size > DEMO_MAX_MEDIA) throw new Error('W trybie demo plik może mieć maks. 3 MB.');
+        Object.assign(fields, {
+          media_url: await readAsDataUrl(file),
+          media_type: file.type.startsWith('video/') ? 'video' : 'image',
+        });
+      } else if (removeMedia) {
+        Object.assign(fields, { media_url: null, media_type: null });
+      }
+
+      let saved = exercise.id && db.exercises.find((e) => e.id === exercise.id);
+      if (saved) {
+        if (saved.coach_id !== db.session) throw new Error('Możesz edytować tylko własne ćwiczenia.');
+        Object.assign(saved, fields, { updated_at: now() });
+      } else {
+        saved = { media_url: null, media_type: null, ...fields, id: uid(), coach_id: db.session, created_at: now(), updated_at: now() };
+        db.exercises.push(saved);
+      }
+      save();
+      return saved.id;
+    },
+
+    async deleteExercise(id) {
+      db.exercises = db.exercises.filter((e) => !(e.id === id && e.coach_id === db.session));
+      db.plan_exercises.forEach((e) => {
+        if (e.exercise_id === id) e.exercise_id = null;
+      });
+      save();
+    },
+
     async listMetrics(clientId) {
       return db.body_metrics.filter((m) => m.client_id === clientId).sort(byDate('measured_on'));
     },
@@ -154,11 +218,31 @@ export function createDemoBackend() {
 function load() {
   try {
     const stored = localStorage.getItem(STORAGE_KEY);
-    if (stored) return JSON.parse(stored);
+    if (stored) {
+      const data = JSON.parse(stored);
+      data.exercises ??= baseExercises();
+      return data;
+    }
   } catch {
     // Uszkodzone lub niedostępne dane – zaczynamy od nowa.
   }
   return seed();
+}
+
+function readAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(new Error('Nie udało się wczytać pliku.'));
+    reader.readAsDataURL(file);
+  });
+}
+
+function baseExercises() {
+  return Object.entries(BASE_EXERCISES).flatMap(([category, names]) => names.map((name) => ({
+    id: uid(), coach_id: null, name, category, description: '', media_url: null, media_type: null,
+    video_url: '', is_public: false, created_at: now(), updated_at: now(),
+  })));
 }
 
 function uid() {
@@ -185,11 +269,18 @@ function seed() {
     notes: 'Rozgrzewka 10 min przed każdym treningiem. Dni A i B wykonuj naprzemiennie.',
     created_at: now(), updated_at: now(),
   };
-  const ex = (day, name, sets, reps, weight, rest, notes = '') => ({ day, name, sets, reps, weight, rest, notes });
+  const exercises_lib = baseExercises();
+  exercises_lib.push({
+    id: uid(), coach_id: coach.id, name: 'Wiosłowanie hantlem w podporze', category: 'Plecy',
+    description: 'Kolano i dłoń na ławce, plecy proste. Ciągnij hantel w stronę biodra, łokieć blisko tułowia.',
+    media_url: null, media_type: null, video_url: '', is_public: true, created_at: now(), updated_at: now(),
+  });
+  const libId = (name) => exercises_lib.find((e) => e.name === name)?.id ?? null;
+  const ex = (day, name, sets, reps, weight, rest, notes = '') => ({ day, name, sets, reps, weight, rest, notes, exercise_id: libId(name) });
   const exercises = [
     ex('Dzień A', 'Przysiad ze sztangą', '4', '6–8', '60 kg', '2 min', 'Tempo 3-1-1'),
     ex('Dzień A', 'Wyciskanie sztangi leżąc', '4', '8', '35 kg', '2 min'),
-    ex('Dzień A', 'Wiosłowanie hantlem', '3', '10–12', '14 kg', '90 s', 'Na każdą stronę'),
+    ex('Dzień A', 'Wiosłowanie hantlem w podporze', '3', '10–12', '14 kg', '90 s', 'Na każdą stronę'),
     ex('Dzień A', 'Plank', '3', '45 s', '', '60 s'),
     ex('Dzień B', 'Martwy ciąg rumuński', '4', '8', '50 kg', '2 min'),
     ex('Dzień B', 'Wyciskanie hantli nad głowę', '3', '10', '10 kg', '90 s'),
@@ -225,6 +316,7 @@ function seed() {
     session: null,
     profiles: [coach, anna, piotr],
     plans: [plan],
+    exercises: exercises_lib,
     plan_exercises: exercises,
     body_metrics,
     lift_records,

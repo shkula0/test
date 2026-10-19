@@ -1,5 +1,7 @@
 // Backend oparty o Supabase (wspólne dane trenera i podopiecznych).
 
+const MEDIA_BUCKET = 'exercise-media';
+
 export function createSupabaseBackend({ supabaseUrl, supabaseAnonKey }) {
   const sb = window.supabase.createClient(supabaseUrl, supabaseAnonKey);
 
@@ -82,6 +84,53 @@ export function createSupabaseBackend({ supabaseUrl, supabaseAnonKey }) {
       await run(sb.from('plans').delete().eq('id', id));
     },
 
+    async listExercises() {
+      return run(sb.from('exercises').select('*').order('name'));
+    },
+
+    async getExercise(id) {
+      return run(sb.from('exercises').select('*').eq('id', id).maybeSingle());
+    },
+
+    async saveExercise(exercise, { file, removeMedia } = {}) {
+      const fields = {
+        name: exercise.name,
+        category: exercise.category,
+        description: exercise.description,
+        video_url: exercise.video_url,
+        is_public: exercise.is_public,
+      };
+      const previous = exercise.id ? await this.getExercise(exercise.id) : null;
+
+      if (file) {
+        const ext = (file.name.split('.').pop() || 'bin').toLowerCase().replace(/[^a-z0-9]/g, '');
+        const path = `${await userId()}/${crypto.randomUUID()}.${ext}`;
+        await run(sb.storage.from(MEDIA_BUCKET).upload(path, file, { contentType: file.type, cacheControl: '31536000' }));
+        Object.assign(fields, {
+          media_path: path,
+          media_url: sb.storage.from(MEDIA_BUCKET).getPublicUrl(path).data.publicUrl,
+          media_type: file.type.startsWith('video/') ? 'video' : 'image',
+        });
+      } else if (removeMedia) {
+        Object.assign(fields, { media_path: null, media_url: null, media_type: null });
+      }
+
+      const saved = exercise.id
+        ? await run(sb.from('exercises').update(fields).eq('id', exercise.id).select().single())
+        : await run(sb.from('exercises').insert(fields).select().single());
+
+      if (previous?.media_path && (file || removeMedia)) {
+        await sb.storage.from(MEDIA_BUCKET).remove([previous.media_path]);
+      }
+      return saved.id;
+    },
+
+    async deleteExercise(id) {
+      const exercise = await this.getExercise(id);
+      await run(sb.from('exercises').delete().eq('id', id));
+      if (exercise?.media_path) await sb.storage.from(MEDIA_BUCKET).remove([exercise.media_path]);
+    },
+
     async listMetrics(clientId) {
       return run(sb.from('body_metrics').select('*').eq('client_id', clientId)
         .order('measured_on').order('created_at'));
@@ -122,6 +171,7 @@ function translateError(message) {
     'Database error saving new user': 'Nie udało się utworzyć konta – sprawdź kod trenera.',
   };
   if (known[message]) return known[message];
+  if (/exceeded the maximum allowed size|Payload too large/i.test(message)) return 'Plik jest za duży (maks. 50 MB).';
   if (message.startsWith('Password should be')) return 'Hasło musi mieć co najmniej 6 znaków.';
   return message;
 }
