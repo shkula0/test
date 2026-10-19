@@ -3,6 +3,7 @@ import { lineChart } from './chart.js';
 import { icons } from './icons.js';
 import { viewLibrary, viewExercise, viewExerciseEditor, normalize } from './library.js';
 import { exerciseThumb, hasMedia } from './media.js';
+import { bodySection, describeMetricRow, metricSourceLabel, readMetricForm } from './measurements.js';
 import {
   $, $$, html, raw, toast, todayIso, formatDate, formatNumber, initials,
   estimatedOneRepMax, formData, toNumber,
@@ -672,26 +673,13 @@ async function viewMyProgress() {
 // Postępy: pomiary ciała i wyniki w ćwiczeniach
 // ============================================================
 
-const METRICS = {
-  weight: { label: 'Waga', unit: 'kg' },
-  waist: { label: 'Talia', unit: 'cm' },
-  body_fat: { label: 'Tłuszcz', unit: '%' },
-};
-
 async function mountProgress(container, clientId) {
-  const state = { metric: 'weight', exercise: null };
+  const state = { group: 'self', metric: 'weight', formOpen: false, exercise: null };
 
   async function draw() {
     const [metrics, lifts, library] = await Promise.all([api.listMetrics(clientId), api.listLifts(clientId), api.listExercises()]);
     const exerciseNames = [...new Set(lifts.map((l) => l.exercise))].sort((a, b) => a.localeCompare(b, 'pl'));
     if (!exerciseNames.includes(state.exercise)) state.exercise = exerciseNames[0] ?? null;
-
-    const metric = METRICS[state.metric];
-    const metricPoints = metrics
-      .filter((m) => m[state.metric] != null)
-      .map((m) => ({ date: m.measured_on, value: Number(m[state.metric]) }));
-    const latest = metricPoints.at(-1);
-    const change = latest && metricPoints.length > 1 ? latest.value - metricPoints[0].value : null;
 
     const exerciseLifts = lifts.filter((l) => l.exercise === state.exercise);
     const liftPoints = bestPerDay(exerciseLifts);
@@ -699,38 +687,13 @@ async function mountProgress(container, clientId) {
 
     const history = [
       ...metrics.map((m) => ({ kind: 'metric', id: m.id, date: m.measured_on, created: m.created_at,
-        text: Object.entries(METRICS).filter(([k]) => m[k] != null).map(([k, def]) => `${def.label} ${formatNumber(m[k])} ${def.unit}`).join(' · '),
-        note: m.note })),
+        text: describeMetricRow(m), tag: metricSourceLabel(m), note: m.note })),
       ...lifts.map((l) => ({ kind: 'lift', id: l.id, date: l.performed_on, created: l.created_at,
         text: `${l.exercise}: ${formatNumber(l.weight, 2)} kg × ${l.reps}`, note: l.note })),
     ].sort((a, b) => b.date.localeCompare(a.date) || b.created.localeCompare(a.created));
 
     container.innerHTML = html`
-      <section class="card">
-        <div class="card-head">
-          <h2>Pomiary ciała</h2>
-          <div class="chips">${Object.entries(METRICS).map(([key, def]) => html`
-            <button class="chip ${key === state.metric ? 'active' : ''}" data-metric="${key}">${def.label}</button>`)}
-          </div>
-        </div>
-        ${latest ? html`<p class="stat">${formatNumber(latest.value)} <small>${metric.unit}</small>
-          ${change != null ? html`<span class="delta ${change > 0 ? 'up' : change < 0 ? 'down' : ''}">${change > 0 ? '+' : ''}${formatNumber(change)} ${metric.unit} od początku</span>` : ''}
-        </p>` : ''}
-        ${htmlChart(metricPoints, metric.unit)}
-        <details>
-          <summary>${icons.plus} Dodaj pomiar</summary>
-          <form id="metric-form" class="stack">
-            <label>Data<input type="date" name="measured_on" value="${todayIso()}" required></label>
-            <div class="grid-3">
-              <label>Waga (kg)<input name="weight" inputmode="decimal"></label>
-              <label>Talia (cm)<input name="waist" inputmode="decimal"></label>
-              <label>Tłuszcz (%)<input name="body_fat" inputmode="decimal"></label>
-            </div>
-            <label>Notatka<input name="note"></label>
-            <button class="btn" type="submit">Zapisz pomiar</button>
-          </form>
-        </details>
-      </section>
+      ${bodySection(metrics, state)}
 
       <section class="card">
         <div class="card-head">
@@ -763,16 +726,24 @@ async function mountProgress(container, clientId) {
         ${history.length ? html`<ul class="history">${history.map((h) => html`
           <li>
             <span class="date">${formatDate(h.date)}</span>
-            <span class="grow">${h.text}${h.note ? html`<br><span class="muted small">${h.note}</span>` : ''}</span>
+            <span class="grow">${h.tag ? html`<span class="tag">${h.tag}</span> ` : ''}${h.text}${h.note ? html`<br><span class="muted small">${h.note}</span>` : ''}</span>
             <button class="icon-btn danger" data-delete="${h.kind}:${h.id}" aria-label="Usuń wpis">${icons.trash}</button>
           </li>`)}</ul>` : html`<p class="muted small">Brak wpisów.</p>`}
       </section>`;
   }
 
   container.addEventListener('click', async (event) => {
-    const chip = event.target.closest('[data-metric]');
-    if (chip) {
-      state.metric = chip.dataset.metric;
+    const tile = event.target.closest('[data-metric]');
+    if (tile) {
+      state.metric = tile.dataset.metric;
+      await draw();
+      $('.chart-title', container)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      return;
+    }
+    const groupTab = event.target.closest('[data-group]');
+    if (groupTab && groupTab.tagName === 'BUTTON') {
+      state.group = groupTab.dataset.group;
+      state.metric = null;
       return draw();
     }
     const del = event.target.closest('[data-delete]');
@@ -797,17 +768,8 @@ async function mountProgress(container, clientId) {
     const data = formData(form);
     await submitting(form, async () => {
       if (form.id === 'metric-form') {
-        const metric = {
-          measured_on: data.measured_on,
-          weight: toNumber(data.weight),
-          waist: toNumber(data.waist),
-          body_fat: toNumber(data.body_fat),
-          note: data.note.trim(),
-        };
-        if (metric.weight == null && metric.waist == null && metric.body_fat == null) {
-          throw new Error('Wpisz przynajmniej jedną wartość.');
-        }
-        await api.addMetric(clientId, metric);
+        await api.addMetric(clientId, readMetricForm(data, form.dataset.group));
+        state.formOpen = false;
       } else {
         const weight = toNumber(data.weight);
         const reps = Math.round(toNumber(data.reps) ?? 0);

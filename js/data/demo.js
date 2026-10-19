@@ -296,11 +296,24 @@ function seed() {
     const date = daysAgo(w * 7);
     const week = 8 - w;
     body_metrics.push({
-      id: uid(), client_id: anna.id, measured_on: date,
+      id: uid(), client_id: anna.id, measured_on: date, source: 'self',
       weight: +(68.4 - week * 0.35 + (week % 3 === 0 ? 0.2 : 0)).toFixed(1),
-      waist: +(78 - week * 0.4).toFixed(1), body_fat: +(27 - week * 0.3).toFixed(1),
+      height: week === 0 ? 168 : null,
+      waist: week % 2 === 0 ? +(78 - week * 0.4).toFixed(1) : null,
+      hips: week % 2 === 0 ? +(101 - week * 0.3).toFixed(1) : null,
+      chest: week % 4 === 0 ? 92 - week * 0.2 : null,
+      arm: week % 4 === 0 ? 29 + week * 0.05 : null,
+      thigh: week % 4 === 0 ? 58 - week * 0.15 : null,
       note: '', created_by: anna.id, created_at: now(),
     });
+    if (week % 4 === 0) {
+      body_metrics.push({
+        id: uid(), client_id: anna.id, measured_on: date, source: 'scale',
+        body_fat: +(27 - week * 0.3).toFixed(1), fat_mass: +(18.5 - week * 0.3).toFixed(1),
+        muscle_mass: +(26.1 + week * 0.1).toFixed(1), visceral_fat: 7 - Math.floor(week / 4), body_water: +(36.2 + week * 0.05).toFixed(1),
+        note: 'InBody na siłowni', created_by: coach.id, created_at: now(),
+      });
+    }
     if (week % 2 === 0) {
       lift_records.push(
         { id: uid(), client_id: anna.id, performed_on: date, exercise: 'Przysiad ze sztangą', weight: 50 + week * 2.5, reps: 6, note: '', created_by: anna.id, created_at: now() },
@@ -310,7 +323,7 @@ function seed() {
     }
   }
   body_metrics.push({
-    id: uid(), client_id: piotr.id, measured_on: daysAgo(3), weight: 84.2, waist: 91, body_fat: null,
+    id: uid(), client_id: piotr.id, measured_on: daysAgo(3), source: 'self', weight: 84.2, height: 182, waist: 91,
     note: 'Pomiar startowy', created_by: coach.id, created_at: now(),
   });
 
