@@ -326,6 +326,31 @@ img.media { background: var(--surface); }
 .ex-link { display: inline-flex; align-items: center; gap: 4px; margin-top: 2px; color: var(--accent); font-size: 0.85rem; font-weight: 600; }
 .ex-link .icon { width: 14px; height: 14px; }
 
+.progress-list { list-style: none; padding: 0; margin: 4px -8px 0; }
+.progress-list li + li { border-top: 1px solid var(--border); }
+.progress-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 10px 8px;
+  border: 0;
+  border-radius: 10px;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.progress-row .grow { display: flex; flex-direction: column; gap: 2px; }
+.progress-row .text { color: var(--text); }
+.progress-row.active { background: var(--accent-soft); }
+.progress-value { display: flex; flex-direction: column; align-items: flex-end; flex: none; color: var(--muted); font-variant-numeric: tabular-nums; }
+.progress-percent { font-size: 1.35rem; font-weight: 800; line-height: 1.1; }
+.progress-kg { font-size: 0.8rem; font-weight: 600; }
+.progress-value.good { color: var(--success); }
+.progress-value.bad { color: var(--danger); }
+
 /* ---------- Trening ---------- */
 
 .day-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 6px 0 8px; }

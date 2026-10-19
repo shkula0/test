@@ -689,6 +689,8 @@ async function mountProgress(container, clientId) {
     ].sort((a, b) => b.date.localeCompare(a.date) || b.created.localeCompare(a.created));
 
     container.innerHTML = html`
+      ${progressCard(exerciseProgress(strength), state.exercise)}
+
       ${bodySection(metrics, state)}
 
       <section class="card">
@@ -735,6 +737,13 @@ async function mountProgress(container, clientId) {
       state.metric = tile.dataset.metric;
       await draw();
       $('.chart-title', container)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      return;
+    }
+    const progressRow = event.target.closest('[data-progress]');
+    if (progressRow) {
+      state.exercise = progressRow.dataset.progress;
+      await draw();
+      $('#exercise-select', container)?.closest('section').scrollIntoView({ behavior: 'smooth', block: 'start' });
       return;
     }
     const groupTab = event.target.closest('[data-group]');
@@ -785,6 +794,48 @@ async function mountProgress(container, clientId) {
 // lineChart buduje SVG wyłącznie z liczb i dat, więc można go wstawić bez escapowania.
 function htmlChart(points, unit) {
   return html`<div class="chart-wrap">${raw(lineChart(points, { unit }))}</div>`;
+}
+
+// Progres ciężaru w każdym ćwiczeniu: najcięższa seria z pierwszego treningu
+// z tym ćwiczeniem vs najcięższa seria z ostatniego treningu.
+function exerciseProgress(strength) {
+  const byExercise = new Map();
+  for (const l of strength) {
+    if (!(Number(l.weight) > 0)) continue;
+    if (!byExercise.has(l.exercise)) byExercise.set(l.exercise, new Map());
+    const days = byExercise.get(l.exercise);
+    days.set(l.performed_on, Math.max(days.get(l.performed_on) ?? 0, Number(l.weight)));
+  }
+  return [...byExercise].map(([exercise, days]) => {
+    const dates = [...days.keys()].sort();
+    const first = { date: dates[0], weight: days.get(dates[0]) };
+    const last = { date: dates.at(-1), weight: days.get(dates.at(-1)) };
+    const sessions = dates.length;
+    const kg = last.weight - first.weight;
+    return { exercise, first, last, sessions, kg, percent: (kg / first.weight) * 100 };
+  }).sort((a, b) => (b.sessions > 1) - (a.sessions > 1) || b.percent - a.percent || a.exercise.localeCompare(b.exercise, 'pl'));
+}
+
+function progressCard(rows, selected) {
+  const sign = (n) => (n > 0 ? '+' : n < 0 ? '−' : '');
+  return html`<section class="card">
+    <h2>Progres w ćwiczeniach</h2>
+    <p class="muted small">Najcięższa seria: pierwszy trening z danym ćwiczeniem → ostatni trening.</p>
+    ${rows.length ? html`<ul class="progress-list">${rows.map((r) => {
+      const tone = r.kg > 0 ? 'good' : r.kg < 0 ? 'bad' : '';
+      return html`<li><button type="button" class="progress-row ${r.exercise === selected ? 'active' : ''}" data-progress="${r.exercise}">
+        <span class="grow">
+          <strong>${r.exercise}</strong>
+          <span class="muted small">${formatNumber(r.first.weight, 2)} kg (${formatDate(r.first.date).slice(0, 5)})
+            ${r.sessions > 1 ? html`→ <strong class="text">${formatNumber(r.last.weight, 2)} kg</strong> (${formatDate(r.last.date).slice(0, 5)})` : '· na razie 1 trening'}</span>
+        </span>
+        ${r.sessions > 1 ? html`<span class="progress-value ${tone}">
+          <span class="progress-percent">${sign(r.kg)}${formatNumber(Math.abs(r.percent), 0)}%</span>
+          <span class="progress-kg">${sign(r.kg)}${formatNumber(Math.abs(r.kg), 2)} kg</span>
+        </span>` : ''}
+      </button></li>`;
+    })}</ul>` : html`<p class="muted small">Pojawi się po zapisaniu treningów z ciężarem.</p>`}
+  </section>`;
 }
 
 // Dla każdego dnia bierze najlepszy szacowany 1RM.
