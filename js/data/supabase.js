@@ -131,6 +131,48 @@ export function createSupabaseBackend({ supabaseUrl, supabaseAnonKey }) {
       if (exercise?.media_path) await sb.storage.from(MEDIA_BUCKET).remove([exercise.media_path]);
     },
 
+    async listWorkouts(clientId) {
+      return run(sb.from('workouts').select('*').eq('client_id', clientId)
+        .order('performed_on', { ascending: false }).order('created_at', { ascending: false }));
+    },
+
+    async getWorkout(id) {
+      const workout = await run(sb.from('workouts').select('*').eq('id', id).maybeSingle());
+      if (!workout) return null;
+      const sets = await run(sb.from('workout_sets').select('*').eq('workout_id', id)
+        .order('position').order('set_number'));
+      return { workout, sets };
+    },
+
+    // Wszystkie serie podopiecznego z datą i planem treningu (do „Poprzednio” i wykresów).
+    async listWorkoutSets(clientId) {
+      const rows = await run(sb.from('workout_sets')
+        .select('*, workouts!inner(client_id, performed_on, plan_id, day, created_at)')
+        .eq('workouts.client_id', clientId));
+      return rows.map(({ workouts: w, ...set }) => ({
+        ...set, performed_on: w.performed_on, plan_id: w.plan_id, day: w.day, workout_created_at: w.created_at,
+      }));
+    },
+
+    async saveWorkout(workout, sets) {
+      const fields = {
+        client_id: workout.client_id, plan_id: workout.plan_id, plan_name: workout.plan_name,
+        day: workout.day, performed_on: workout.performed_on, notes: workout.notes,
+      };
+      const saved = workout.id
+        ? await run(sb.from('workouts').update(fields).eq('id', workout.id).select().single())
+        : await run(sb.from('workouts').insert(fields).select().single());
+      await run(sb.from('workout_sets').delete().eq('workout_id', saved.id));
+      if (sets.length) {
+        await run(sb.from('workout_sets').insert(sets.map(({ id, ...set }) => ({ ...set, workout_id: saved.id }))));
+      }
+      return saved.id;
+    },
+
+    async deleteWorkout(id) {
+      await run(sb.from('workouts').delete().eq('id', id));
+    },
+
     async listMetrics(clientId) {
       return run(sb.from('body_metrics').select('*').eq('client_id', clientId)
         .order('measured_on').order('created_at'));

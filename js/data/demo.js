@@ -180,6 +180,51 @@ export function createDemoBackend() {
       save();
     },
 
+    async listWorkouts(clientId) {
+      return db.workouts.filter((w) => w.client_id === clientId)
+        .sort((a, b) => b.performed_on.localeCompare(a.performed_on) || b.created_at.localeCompare(a.created_at));
+    },
+
+    async getWorkout(id) {
+      const workout = db.workouts.find((w) => w.id === id);
+      if (!workout) return null;
+      const sets = db.workout_sets.filter((s) => s.workout_id === id)
+        .sort((a, b) => a.position - b.position || a.set_number - b.set_number);
+      return { workout, sets };
+    },
+
+    async listWorkoutSets(clientId) {
+      const workouts = new Map(db.workouts.filter((w) => w.client_id === clientId).map((w) => [w.id, w]));
+      return db.workout_sets.filter((s) => workouts.has(s.workout_id)).map((s) => {
+        const w = workouts.get(s.workout_id);
+        return { ...s, performed_on: w.performed_on, plan_id: w.plan_id, day: w.day, workout_created_at: w.created_at };
+      });
+    },
+
+    async saveWorkout(workout, sets) {
+      const fields = {
+        client_id: workout.client_id, plan_id: workout.plan_id, plan_name: workout.plan_name,
+        day: workout.day, performed_on: workout.performed_on, notes: workout.notes,
+      };
+      let saved = workout.id && db.workouts.find((w) => w.id === workout.id);
+      if (saved) {
+        Object.assign(saved, fields, { updated_at: now() });
+      } else {
+        saved = { ...fields, id: uid(), created_by: db.session, created_at: now(), updated_at: now() };
+        db.workouts.push(saved);
+      }
+      db.workout_sets = db.workout_sets.filter((s) => s.workout_id !== saved.id);
+      sets.forEach((set) => db.workout_sets.push({ ...set, id: uid(), workout_id: saved.id }));
+      save();
+      return saved.id;
+    },
+
+    async deleteWorkout(id) {
+      db.workouts = db.workouts.filter((w) => w.id !== id);
+      db.workout_sets = db.workout_sets.filter((s) => s.workout_id !== id);
+      save();
+    },
+
     async listMetrics(clientId) {
       return db.body_metrics.filter((m) => m.client_id === clientId).sort(byDate('measured_on'));
     },
@@ -221,6 +266,8 @@ function load() {
     if (stored) {
       const data = JSON.parse(stored);
       data.exercises ??= baseExercises();
+      data.workouts ??= [];
+      data.workout_sets ??= [];
       return data;
     }
   } catch {
@@ -327,11 +374,38 @@ function seed() {
     note: 'Pomiar startowy', created_by: coach.id, created_at: now(),
   });
 
+  // Dwa wcześniejsze treningi z dnia A, żeby było widać „Poprzednio”.
+  const workouts = [];
+  const workout_sets = [];
+  const dayA = exercises.filter((e) => e.day === 'Dzień A');
+  [[14, 0], [7, 1]].forEach(([ago, step]) => {
+    const workout = {
+      id: uid(), client_id: anna.id, plan_id: plan.id, plan_name: plan.name, day: 'Dzień A',
+      performed_on: daysAgo(ago), notes: step ? 'Dobra forma, przysiad szedł lekko.' : '',
+      created_by: coach.id, created_at: now(), updated_at: now(),
+    };
+    workouts.push(workout);
+    const base = { 'Przysiad ze sztangą': [55, 8], 'Wyciskanie sztangi leżąc': [32.5, 8], 'Wiosłowanie hantlem w podporze': [12, 12], 'Plank': [0, 40] };
+    dayA.forEach((ex, position) => {
+      const [weight, reps] = base[ex.name];
+      const count = Number.parseInt(ex.sets, 10) || 3;
+      for (let set = 1; set <= count; set++) {
+        workout_sets.push({
+          id: uid(), workout_id: workout.id, position, label: '', exercise_name: ex.name, exercise_id: ex.exercise_id,
+          set_number: set, weight: weight ? weight + step * 2.5 : null, reps: reps - (set === count ? 1 : 0) + step * (weight ? 0 : 5),
+          done: true, note: '',
+        });
+      }
+    });
+  });
+
   return {
     session: null,
     profiles: [coach, anna, piotr],
     plans: [plan],
     exercises: exercises_lib,
+    workouts,
+    workout_sets,
     plan_exercises: exercises,
     body_metrics,
     lift_records,

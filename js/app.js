@@ -4,6 +4,8 @@ import { icons } from './icons.js';
 import { viewLibrary, viewExercise, viewExerciseEditor, normalize } from './library.js';
 import { exerciseThumb, hasMedia } from './media.js';
 import { bodySection, describeMetricRow, metricSourceLabel, readMetricForm } from './measurements.js';
+import { planLabels } from './plan-utils.js';
+import { viewWorkout, viewWorkoutEditor, workoutList } from './workouts.js';
 import {
   $, $$, html, raw, toast, todayIso, formatDate, formatNumber, initials,
   estimatedOneRepMax, formData, toNumber,
@@ -58,6 +60,9 @@ async function router() {
     if (section === 'exercise' && id === 'new' && isCoach) return viewExerciseEditor(ctx, null);
     if (section === 'exercise' && id && action === 'edit' && isCoach) return viewExerciseEditor(ctx, id);
     if (section === 'exercise' && id) return viewExercise(ctx, id, params);
+    if (section === 'workout' && id === 'new') return viewWorkoutEditor(ctx, { planId: params.get('plan'), day: params.get('day') ?? '' });
+    if (section === 'workout' && id && action === 'edit') return viewWorkoutEditor(ctx, { workoutId: id });
+    if (section === 'workout' && id) return viewWorkout(ctx, id);
     if (section === 'account') return viewAccount();
     if (section === 'login' || section === 'register') return go('/');
     return viewNotFound();
@@ -300,19 +305,30 @@ async function viewClient(clientId, tab) {
     back: '/',
     nav: 'clients',
     body: html`
-      <div class="tabs">${tabLink('plans', 'Plany')}${tabLink('progress', 'Postępy')}</div>
+      <div class="tabs">${tabLink('plans', 'Plany')}${tabLink('workouts', 'Treningi')}${tabLink('progress', 'Postępy')}</div>
       <div id="tab-content"></div>`,
   });
 
   const container = $('#tab-content');
   if (tab === 'progress') {
     await mountProgress(container, clientId);
+  } else if (tab === 'workouts') {
+    container.innerHTML = await workoutsSection(clientId,
+      'Brak zapisanych treningów. Otwórz plan i przy wybranym dniu kliknij „Rozpocznij trening”.');
   } else {
     const plans = await api.listPlans(clientId);
     container.innerHTML = html`
       <a class="btn btn-block" href="#/plan/new/${clientId}">${icons.plus} Nowy plan</a>
       ${plans.length ? planList(plans) : emptyState('Ten podopieczny nie ma jeszcze planu treningowego.')}`;
   }
+}
+
+async function workoutsSection(clientId, emptyText, limit = Infinity) {
+  const [workouts, sets] = await Promise.all([api.listWorkouts(clientId), api.listWorkoutSets(clientId)]);
+  if (!workouts.length) return emptyState(emptyText);
+  const setsByWorkout = new Map();
+  for (const set of sets) setsByWorkout.set(set.workout_id, [...(setsByWorkout.get(set.workout_id) ?? []), set]);
+  return workoutList(workouts.slice(0, limit), setsByWorkout);
 }
 
 function planList(plans) {
@@ -542,40 +558,6 @@ async function viewPlanEditor(planId, newClientId) {
 // Plan treningowy (trener i podopieczny)
 // ============================================================
 
-// Oznaczenia ćwiczeń w każdym dniu: pojedyncze A, B…, superserie C1, C2, C3.
-// Ćwiczenie z superset = true wykonuje się razem z poprzednim (w tym samym dniu).
-function planLabels(exercises) {
-  const groups = [];
-  let letter = -1;
-  exercises.forEach((ex, i) => {
-    const prev = exercises[i - 1];
-    const sameDay = prev && (prev.day || '') === (ex.day || '');
-    if (!sameDay) letter = -1;
-    if (ex.superset && sameDay) {
-      groups.at(-1).items.push(i);
-    } else {
-      letter += 1;
-      groups.push({ letter: letterFor(letter), items: [i] });
-    }
-  });
-  const labels = [];
-  for (const group of groups) {
-    group.items.forEach((index, n) => {
-      labels[index] = {
-        label: group.items.length > 1 ? `${group.letter}${n + 1}` : group.letter,
-        joined: n > 0,
-        size: group.items.length,
-        canJoin: index > 0 && (exercises[index - 1].day || '') === (exercises[index].day || ''),
-      };
-    });
-  }
-  return labels;
-}
-
-function letterFor(n) {
-  const char = (i) => String.fromCharCode(65 + i);
-  return n < 26 ? char(n) : char(Math.floor(n / 26) - 1) + char(n % 26);
-}
 
 async function viewPlan(planId) {
   const [data, library] = await Promise.all([api.getPlan(planId), api.listExercises()]);
@@ -589,7 +571,7 @@ async function viewPlan(planId) {
   const days = [];
   exercises.forEach((ex, i) => {
     const day = ex.day || 'Ćwiczenia';
-    if (days.at(-1)?.day !== day) days.push({ day, groups: [] });
+    if (days.at(-1)?.day !== day) days.push({ day, rawDay: ex.day || '', groups: [] });
     const groups = days.at(-1).groups;
     if (!labels[i].joined) groups.push([]);
     groups.at(-1).push({ ex, label: labels[i].label });
@@ -620,9 +602,12 @@ async function viewPlan(planId) {
     nav: isCoach ? 'clients' : 'plans',
     body: html`
       ${plan.notes ? html`<section class="card note">${plan.notes}</section>` : ''}
-      ${days.length ? days.map(({ day, groups }) => html`
+      ${days.length ? days.map(({ day, rawDay, groups }) => html`
         <section class="day">
-          <h2>${day}</h2>
+          <div class="day-head">
+            <h2>${day}</h2>
+            <a class="btn btn-small" href="#/workout/new?plan=${plan.id}&day=${encodeURIComponent(rawDay)}">${icons.play} Rozpocznij trening</a>
+          </div>
           <ol class="card exercises">${groups.map((group) => (group.length > 1
             ? html`<li class="superset">
                 <p class="superset-head">${icons.link} Superseria – wykonuj jedno po drugim, bez przerwy między ćwiczeniami</p>
@@ -660,8 +645,11 @@ async function viewMyPlans() {
     nav: 'plans',
     body: html`
       <p class="muted">Cześć, ${me.full_name.split(' ')[0]}!${coach ? html` Twój trener: <strong>${coach.full_name}</strong>.` : ''}</p>
-      ${plans.length ? planList(plans) : emptyState('Trener nie przygotował jeszcze dla Ciebie planu. Zajrzyj tu wkrótce!')}`,
+      ${plans.length ? planList(plans) : emptyState('Trener nie przygotował jeszcze dla Ciebie planu. Zajrzyj tu wkrótce!')}
+      <h2>Ostatnie treningi</h2>
+      <div id="my-workouts"></div>`,
   });
+  $('#my-workouts').innerHTML = await workoutsSection(me.id, 'Nie masz jeszcze zapisanych treningów. Otwórz plan i kliknij „Rozpocznij trening”.', 10);
 }
 
 async function viewMyProgress() {
@@ -677,11 +665,19 @@ async function mountProgress(container, clientId) {
   const state = { group: 'self', metric: 'weight', formOpen: false, exercise: null };
 
   async function draw() {
-    const [metrics, lifts, library] = await Promise.all([api.listMetrics(clientId), api.listLifts(clientId), api.listExercises()]);
-    const exerciseNames = [...new Set(lifts.map((l) => l.exercise))].sort((a, b) => a.localeCompare(b, 'pl'));
+    const [metrics, lifts, library, workoutSets] = await Promise.all([
+      api.listMetrics(clientId), api.listLifts(clientId), api.listExercises(), api.listWorkoutSets(clientId),
+    ]);
+    // Do wykresów siły trafiają też serie z zapisanych treningów.
+    const strength = [
+      ...lifts,
+      ...workoutSets.filter((s) => Number(s.weight) > 0 && Number(s.reps) > 0)
+        .map((s) => ({ exercise: s.exercise_name, weight: Number(s.weight), reps: Number(s.reps), performed_on: s.performed_on })),
+    ];
+    const exerciseNames = [...new Set(strength.map((l) => l.exercise))].sort((a, b) => a.localeCompare(b, 'pl'));
     if (!exerciseNames.includes(state.exercise)) state.exercise = exerciseNames[0] ?? null;
 
-    const exerciseLifts = lifts.filter((l) => l.exercise === state.exercise);
+    const exerciseLifts = strength.filter((l) => l.exercise === state.exercise);
     const liftPoints = bestPerDay(exerciseLifts);
     const best = exerciseLifts.reduce((top, l) => (!top || estimatedOneRepMax(l.weight, l.reps) > estimatedOneRepMax(top.weight, top.reps) ? l : top), null);
 
@@ -704,7 +700,8 @@ async function mountProgress(container, clientId) {
         </div>
         ${best ? html`<p class="stat">${formatNumber(estimatedOneRepMax(best.weight, best.reps))} <small>kg szac. 1RM</small>
           <span class="delta">rekord: ${formatNumber(best.weight, 2)} kg × ${best.reps} (${formatDate(best.performed_on)})</span></p>` : ''}
-        ${exerciseNames.length ? htmlChart(liftPoints, 'kg') : html`<p class="muted small">Zapisuj ciężar i liczbę powtórzeń, a zobaczysz wykres siły.</p>`}
+        ${exerciseNames.length ? htmlChart(liftPoints, 'kg') : html`<p class="muted small">Zapisuj treningi albo dodawaj wyniki poniżej, a zobaczysz wykres siły.</p>`}
+        ${exerciseNames.length ? html`<p class="muted small">Wykres obejmuje serie z zapisanych treningów i wyniki dodane ręcznie.</p>` : ''}
         <details>
           <summary>${icons.plus} Dodaj wynik</summary>
           <form id="lift-form" class="stack">

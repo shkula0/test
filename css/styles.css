@@ -326,6 +326,96 @@ img.media { background: var(--surface); }
 .ex-link { display: inline-flex; align-items: center; gap: 4px; margin-top: 2px; color: var(--accent); font-size: 0.85rem; font-weight: 600; }
 .ex-link .icon { width: 14px; height: 14px; }
 
+/* ---------- Trening ---------- */
+
+.day-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 6px 0 8px; }
+.day-head h2 { margin: 0 4px; }
+.btn-small { min-height: 36px; padding: 6px 12px; font-size: 0.85rem; border-radius: 10px; }
+.btn-small .icon { width: 16px; height: 16px; }
+
+.wk-top { display: flex; gap: 12px; align-items: flex-start; }
+.wk-top p { margin: 4px 0 0; }
+.wk-date { flex: none; width: 150px; }
+
+.wk-ex { display: flex; flex-direction: column; gap: 10px; padding: 14px 12px; }
+.wk-ex.in-superset { border-left: 4px solid var(--accent); }
+.wk-ex.in-superset .ex-label { background: var(--accent); color: var(--accent-text); }
+.wk-ex.joined { margin-top: -10px; border-top-left-radius: 0; border-top-right-radius: 0; border-top: 1px dashed var(--accent); }
+.wk-ex .superset-head { margin: 0; }
+.wk-head { display: flex; align-items: flex-start; gap: 10px; }
+.wk-head .ex-label { margin-top: 1px; }
+.wk-thumb { flex: none; }
+
+.sets { width: 100%; border-collapse: separate; border-spacing: 0 6px; table-layout: fixed; }
+.sets th { font-size: 0.72rem; font-weight: 600; color: var(--muted); text-align: center; line-height: 1.2; }
+.sets th:nth-child(1), .sets td:nth-child(1) { width: 40px; }
+.sets th:nth-child(2) { width: 28%; }
+.sets th:nth-child(5), .sets td:nth-child(5) { width: 46px; }
+.sets td { text-align: center; padding: 0 3px; }
+.sets input { padding: 9px 4px; text-align: center; font-variant-numeric: tabular-nums; }
+.sets input::placeholder { color: var(--muted); opacity: 0.55; }
+.set-no {
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 1.5px solid var(--border);
+  border-radius: 50%;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+.prev {
+  width: 100%;
+  padding: 6px 2px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.8rem;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+.prev:hover { background: var(--bg); }
+.done-btn {
+  display: inline-grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border: 1.5px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--muted);
+  cursor: pointer;
+}
+.done-btn[aria-pressed="true"] { background: var(--success); border-color: var(--success); color: #fff; }
+.sets tr.done td { background: color-mix(in srgb, var(--success) 12%, transparent); }
+.sets tr.done td:first-child { border-radius: 10px 0 0 10px; }
+.sets tr.done td:last-child { border-radius: 0 10px 10px 0; }
+.sets tr.done .set-no { border-color: var(--success); color: var(--success); }
+.wk-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.wk-actions .chip { display: inline-flex; align-items: center; gap: 4px; }
+.wk-actions .chip .icon { width: 14px; height: 14px; }
+.chip:disabled { opacity: 0.4; }
+
+.wk-stats { display: flex; gap: 20px; margin: 4px 0 8px; }
+.wk-stats > div { display: flex; flex-direction: column; }
+.wk-stats .stat { font-size: 1.5rem; margin: 0; }
+.wk-sets { display: flex; flex-wrap: wrap; gap: 4px 12px; margin: 2px 0; font-variant-numeric: tabular-nums; font-size: 0.92rem; }
+.wk-date-badge {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 0.72rem;
+  line-height: 1.05;
+  flex: none;
+}
+.wk-date-badge strong { font-size: 1.05rem; }
+
 /* ---------- Postępy ---------- */
 
 .tabs button {
