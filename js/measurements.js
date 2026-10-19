@@ -2,7 +2,7 @@
 
 import { lineChart } from './chart.js';
 import { icons } from './icons.js';
-import { html, raw, formatNumber, todayIso, toNumber } from './ui.js';
+import { html, raw, formatDate, formatNumber, todayIso, toNumber } from './ui.js';
 
 // better: w którą stronę zmiana jest zwykle korzystna (do kolorowania), null = zależy od celu.
 export const METRICS = [
@@ -30,6 +30,11 @@ export const GROUPS = {
 
 const byKey = Object.fromEntries(METRICS.map((m) => [m.key, m]));
 const INPUT_KEYS = METRICS.filter((m) => !m.computed).map((m) => m.key);
+
+// „2026-08-24” → „24.08”
+function shortDate(iso) {
+  return formatDate(iso).slice(0, 5);
+}
 
 function withUnit(value, unit) {
   return unit ? `${value} ${unit}` : value;
@@ -63,7 +68,7 @@ export function bodySection(rows, state) {
     return html`<button type="button" class="tile ${m.key === selected.key ? 'active' : ''}" data-metric="${m.key}">
       <span class="tile-label">${m.label}</span>
       <span class="tile-value">${last ? withUnit(formatNumber(last.value), m.unit) : '–'}</span>
-      ${change != null && change !== 0 ? html`<span class="tile-delta ${tone}">${change > 0 ? '+' : ''}${formatNumber(change)}</span>` : ''}
+      ${change != null ? html`<span class="tile-delta ${tone}" title="Zmiana od pierwszego pomiaru (${formatDate(series[0].date)})">${change === 0 ? 'bez zmian' : withUnit(`${change > 0 ? '+' : ''}${formatNumber(change)}`, m.unit)} od ${shortDate(series[0].date)}</span>` : ''}
       <span class="tile-freq">${m.freq}</span>
     </button>`;
   };
