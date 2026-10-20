@@ -8,6 +8,7 @@ import {
   blankTarget, cleanTargets, letterFor, planLabels, planTargets, targetText, targetsSummary,
 } from './plan-utils.js';
 import { previousByExercise, viewWorkout, viewWorkoutEditor, workoutList } from './workouts.js';
+import { computeSummary, exerciseProgress, strengthEntries, summarySection } from './summary.js';
 import {
   $, $$, html, raw, toast, todayIso, formatDate, formatNumber, initials,
   estimatedOneRepMax, formData, toNumber,
@@ -69,7 +70,7 @@ async function router() {
 
     const isCoach = me.role === 'coach';
     if (!section) return isCoach ? viewClients() : viewMyPlans();
-    if (section === 'client' && id && isCoach) return viewClient(id, params.get('tab') ?? 'plans');
+    if (section === 'client' && id && isCoach) return viewClient(id, params.get('tab') ?? 'summary');
     if (section === 'plan' && id === 'new' && action && isCoach) return viewPlanEditor(null, action);
     if (section === 'plan' && id && action === 'edit' && isCoach) return viewPlanEditor(id);
     if (section === 'plan' && id) return viewPlan(id);
@@ -378,12 +379,14 @@ async function viewClient(clientId, tab) {
     back: '/',
     nav: 'clients',
     body: html`
-      <div class="tabs">${tabLink('plans', 'Plany')}${tabLink('workouts', 'Treningi')}${tabLink('progress', 'Postępy')}</div>
+      <div class="tabs">${tabLink('summary', 'Start')}${tabLink('plans', 'Plany')}${tabLink('workouts', 'Treningi')}${tabLink('progress', 'Postępy')}</div>
       <div id="tab-content"></div>`,
   });
 
   const container = $('#tab-content');
-  if (tab === 'progress') {
+  if (tab === 'summary') {
+    container.innerHTML = await clientSummary(clientId);
+  } else if (tab === 'progress') {
     await mountProgress(container, clientId);
   } else if (tab === 'workouts') {
     container.innerHTML = await workoutsSection(clientId,
@@ -394,6 +397,13 @@ async function viewClient(clientId, tab) {
       <a class="btn btn-block" href="#/plan/new/${clientId}">${icons.plus} Nowy plan</a>
       ${plans.length ? planList(plans) : emptyState('Ten podopieczny nie ma jeszcze planu treningowego.')}`;
   }
+}
+
+async function clientSummary(clientId) {
+  const [workouts, workoutSets, lifts] = await Promise.all([
+    api.listWorkouts(clientId), api.listWorkoutSets(clientId), api.listLifts(clientId),
+  ]);
+  return summarySection(computeSummary({ workouts, workoutSets, strength: strengthEntries(lifts, workoutSets) }));
 }
 
 async function workoutsSection(clientId, emptyText, limit = Infinity) {
@@ -468,7 +478,7 @@ async function viewPlanEditor(planId, newClientId) {
 
   renderShell({
     title: existing ? 'Edytuj plan' : 'Nowy plan',
-    back: existing ? `/plan/${planId}` : `/client/${clientId}`,
+    back: existing ? `/plan/${planId}` : `/client/${clientId}?tab=plans`,
     nav: 'clients',
     body: html`
       <p class="muted">Dla: <strong>${client.full_name}</strong></p>
@@ -796,7 +806,7 @@ async function viewPlan(planId) {
 
   renderShell({
     title: plan.name,
-    back: isCoach ? `/client/${plan.client_id}` : '/',
+    back: isCoach ? `/client/${plan.client_id}?tab=plans` : '/',
     nav: isCoach ? 'clients' : 'plans',
     body: html`
       ${plan.notes ? html`<section class="card note">${plan.notes}</section>` : ''}
@@ -825,7 +835,7 @@ async function viewPlan(planId) {
     if (!confirm(`Usunąć plan „${plan.name}”?`)) return;
     await api.deletePlan(plan.id);
     toast('Plan usunięty');
-    go(`/client/${plan.client_id}`);
+    go(`/client/${plan.client_id}?tab=plans`);
   });
 }
 
@@ -843,10 +853,13 @@ async function viewMyPlans() {
     nav: 'plans',
     body: html`
       <p class="muted">Cześć, ${me.full_name.split(' ')[0]}!${coach ? html` Twój trener: <strong>${coach.full_name}</strong>.` : ''}</p>
+      <div id="my-summary" class="stack"></div>
+      <h2>Twoje plany</h2>
       ${plans.length ? planList(plans) : emptyState('Trener nie przygotował jeszcze dla Ciebie planu. Zajrzyj tu wkrótce!')}
       <h2>Ostatnie treningi</h2>
       <div id="my-workouts"></div>`,
   });
+  $('#my-summary').innerHTML = await clientSummary(me.id);
   $('#my-workouts').innerHTML = await workoutsSection(me.id, 'Nie masz jeszcze zapisanych treningów. Otwórz plan i kliknij „Rozpocznij trening”.', 10);
 }
 
@@ -867,11 +880,7 @@ async function mountProgress(container, clientId) {
       api.listMetrics(clientId), api.listLifts(clientId), api.listExercises(), api.listWorkoutSets(clientId),
     ]);
     // Do wykresów siły trafiają też serie z zapisanych treningów.
-    const strength = [
-      ...lifts,
-      ...workoutSets.filter((s) => Number(s.weight) > 0 && Number(s.reps) > 0)
-        .map((s) => ({ exercise: s.exercise_name, weight: Number(s.weight), reps: Number(s.reps), performed_on: s.performed_on })),
-    ];
+    const strength = strengthEntries(lifts, workoutSets);
     const exerciseNames = [...new Set(strength.map((l) => l.exercise))].sort((a, b) => a.localeCompare(b, 'pl'));
     if (!exerciseNames.includes(state.exercise)) state.exercise = exerciseNames[0] ?? null;
 
@@ -992,26 +1001,6 @@ async function mountProgress(container, clientId) {
 // lineChart buduje SVG wyłącznie z liczb i dat, więc można go wstawić bez escapowania.
 function htmlChart(points, unit) {
   return html`<div class="chart-wrap">${raw(lineChart(points, { unit }))}</div>`;
-}
-
-// Progres ciężaru w każdym ćwiczeniu: najcięższa seria z pierwszego treningu
-// z tym ćwiczeniem vs najcięższa seria z ostatniego treningu.
-function exerciseProgress(strength) {
-  const byExercise = new Map();
-  for (const l of strength) {
-    if (!(Number(l.weight) > 0)) continue;
-    if (!byExercise.has(l.exercise)) byExercise.set(l.exercise, new Map());
-    const days = byExercise.get(l.exercise);
-    days.set(l.performed_on, Math.max(days.get(l.performed_on) ?? 0, Number(l.weight)));
-  }
-  return [...byExercise].map(([exercise, days]) => {
-    const dates = [...days.keys()].sort();
-    const first = { date: dates[0], weight: days.get(dates[0]) };
-    const last = { date: dates.at(-1), weight: days.get(dates.at(-1)) };
-    const sessions = dates.length;
-    const kg = last.weight - first.weight;
-    return { exercise, first, last, sessions, kg, percent: (kg / first.weight) * 100 };
-  }).sort((a, b) => (b.sessions > 1) - (a.sessions > 1) || b.percent - a.percent || a.exercise.localeCompare(b.exercise, 'pl'));
 }
 
 function progressCard(rows, selected) {

@@ -6,6 +6,7 @@ Aplikacja na telefon (PWA) dla trenera personalnego i jego podopiecznych.
 - **Podopieczny** widzi swoje plany i zapisuje pomiary ciała – samodzielne (waga, wzrost, obwody; BMI liczone automatycznie) i z wagi do analizy składu ciała (PBF, BFM, SMM, tłuszcz trzewny, TBW) – oraz wyniki w ćwiczeniach. Na tej podstawie powstają wykresy, m.in. szacowanego ciężaru maksymalnego (1RM).
 - **Biblioteka ćwiczeń**: bazowy zestaw ponad 40 ćwiczeń, a do tego własne ćwiczenia trenera ze zdjęciem lub filmem (plik z telefonu albo link do YouTube) i opisem techniki. Ćwiczenie można udostępnić innym trenerom. Podopieczny klika ćwiczenie w planie i widzi, jak je wykonać.
 - **Dziennik treningów**: trening startuje z wybranego dnia planu ze wszystkimi ćwiczeniami; w polach na szaro widać wynik z poprzedniego treningu z tego planu (albo wartości z planu), a stuknięcie numeru serii odhacza ją i zatwierdza szare wartości. Treningi zapisuje trener albo podopieczny, a serie trafiają do wykresów siły.
+- **Podsumowanie** na start: największy progres, tonaż tygodnia i miesiąca z porównaniem do poprzedniego okresu, liczba treningów, rekordy z 30 dni i seria tygodni z treningiem.
 - Podopieczni dołączają do trenera przez **link z kodem zaproszenia**.
 - Aplikację instaluje się z przeglądarki na ekranie głównym telefonu (Android i iPhone), bez sklepu z aplikacjami.
 
@@ -72,6 +73,7 @@ Po zmianie plików podbij wersję w [`sw.js`](sw.js) (`const CACHE = 'trener-v2'
 | `js/library.js`, `js/media.js` | Biblioteka ćwiczeń, zdjęcia i filmy |
 | `js/measurements.js` | Definicje pomiarów ciała, BMI, kafelki i formularze |
 | `js/workouts.js`, `js/plan-utils.js` | Dziennik treningów, „Poprzednio”, oznaczenia A/B1/B2 |
+| `js/summary.js` | Podsumowanie: tonaż, treningi, seria, progres, rekordy |
 | `js/data/` | Warstwa danych: `supabase.js` (produkcja), `demo.js` (localStorage) |
 | `js/chart.js` | Wykresy SVG |
 | `supabase/schema.sql` | Tabele, rejestracja z kodem trenera, uprawnienia (RLS) |
