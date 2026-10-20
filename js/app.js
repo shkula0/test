@@ -7,7 +7,7 @@ import { bodySection, describeMetricRow, metricSourceLabel, readMetricForm } fro
 import {
   blankTarget, cleanTargets, letterFor, planLabels, planTargets, targetText, targetsSummary,
 } from './plan-utils.js';
-import { viewWorkout, viewWorkoutEditor, workoutList } from './workouts.js';
+import { previousByExercise, viewWorkout, viewWorkoutEditor, workoutList } from './workouts.js';
 import {
   $, $$, html, raw, toast, todayIso, formatDate, formatNumber, initials,
   estimatedOneRepMax, formData, toNumber,
@@ -350,7 +350,7 @@ async function viewPlanEditor(planId, newClientId) {
   const client = await api.getProfile(clientId);
   if (!client || client.coach_id !== me.id) return viewNotFound();
 
-  const library = await api.listExercises();
+  const [library, clientSets] = await Promise.all([api.listExercises(), api.listWorkoutSets(clientId)]);
   const FIELDS = ['name', 'rest', 'notes'];
   let nextDayId = 0;
   const newDay = (name) => ({ id: `d${nextDayId++}`, name });
@@ -386,6 +386,15 @@ async function viewPlanEditor(planId, newClientId) {
   };
   sortRows();
 
+  // Szare podpowiedzi: co podopieczny zrobił w danym ćwiczeniu na ostatnim treningu
+  // (najpierw z tego planu i dnia, potem z dowolnego treningu).
+  const lastByDay = new Map();
+  const lastResult = (row) => {
+    const dayName = days.find((d) => d.id === row.dayId)?.name ?? '';
+    if (!lastByDay.has(dayName)) lastByDay.set(dayName, previousByExercise(clientSets, { planId, day: dayName }));
+    return lastByDay.get(dayName).get(normalize(row.name)) ?? null;
+  };
+
   renderShell({
     title: existing ? 'Edytuj plan' : 'Nowy plan',
     back: existing ? `/plan/${planId}` : `/client/${clientId}`,
@@ -415,7 +424,7 @@ async function viewPlanEditor(planId, newClientId) {
   const rowsEl = $('#rows');
   const drawRows = () => {
     const labels = planLabels(rows.map((r) => ({ ...r, day: r.dayId })));
-    const exerciseCard = (r, i) => html`
+    const exerciseCard = (r, i, last = lastResult(r)) => html`
       <fieldset class="card exercise-edit ${labels[i].size > 1 ? 'in-superset' : ''} ${labels[i].joined ? 'joined' : ''}" data-index="${i}">
         ${labels[i].canJoin ? html`<label class="superset-toggle">
           <input type="checkbox" data-superset ${r.superset ? 'checked' : ''}>
@@ -434,13 +443,17 @@ async function viewPlanEditor(planId, newClientId) {
           <div class="combo-list" role="listbox" hidden></div>
           <p class="combo-hint small">${linkHint(r)}</p>
         </div>
+        ${last ? html`<p class="muted small last-hint"><span class="ghost-sample">Szare</span> = ostatni trening (${formatDate(last.date)})</p>` : ''}
         <table class="sets plan-sets ${r.useTime ? 'with-time' : ''}">
           <thead><tr><th>Seria</th><th>Powt.</th><th>kg</th>${r.useTime ? html`<th>Czas (s)</th>` : ''}<th>Intens.</th></tr></thead>
           <tbody>${r.targets.map((t, ti) => html`<tr data-target="${ti}">
             <td><span class="set-no">${ti + 1}</span></td>
-            <td><input data-t="reps" value="${t.reps}" autocomplete="off" aria-label="Powtórzenia seria ${ti + 1}"></td>
-            <td><input data-t="weight" value="${t.weight}" inputmode="decimal" autocomplete="off" aria-label="Ciężar seria ${ti + 1}"></td>
-            ${r.useTime ? html`<td><input data-t="time" value="${t.time}" inputmode="numeric" autocomplete="off" aria-label="Czas seria ${ti + 1}"></td>` : ''}
+            <td><input data-t="reps" value="${t.reps}" autocomplete="off" aria-label="Powtórzenia seria ${ti + 1}"
+              placeholder="${last?.sets[ti]?.reps ?? ''}"></td>
+            <td><input data-t="weight" value="${t.weight}" inputmode="decimal" autocomplete="off" aria-label="Ciężar seria ${ti + 1}"
+              placeholder="${Number(last?.sets[ti]?.weight) > 0 ? formatNumber(last.sets[ti].weight, 2) : ''}"></td>
+            ${r.useTime ? html`<td><input data-t="time" value="${t.time}" inputmode="numeric" autocomplete="off" aria-label="Czas seria ${ti + 1}"
+              placeholder="${last?.sets[ti]?.duration_s ?? ''}"></td>` : ''}
             <td><input data-t="effort" value="${t.effort}" autocomplete="off" aria-label="Intensywność seria ${ti + 1}"></td>
           </tr>`)}</tbody>
         </table>
@@ -504,10 +517,10 @@ async function viewPlanEditor(planId, newClientId) {
     const row = rows[fieldset.dataset.index];
     row.name = exercise.name;
     row.exercise_id = exercise.id;
-    $('[data-field=name]', fieldset).value = exercise.name;
-    hideSuggestions(fieldset);
-    refreshHint(fieldset);
-    $('[data-t=reps]', fieldset)?.focus();
+    // Przerysowanie pokazuje szare wyniki z ostatniego treningu dla wybranego ćwiczenia.
+    const index = fieldset.dataset.index;
+    drawRows();
+    $(`[data-index="${index}"] [data-t=reps]`, rowsEl)?.focus();
   };
 
   rowsEl.addEventListener('input', (event) => {

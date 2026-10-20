@@ -661,3 +661,4 @@ fieldset { margin: 0; min-width: 0; }
   .grid-4 { grid-template-columns: repeat(2, 1fr); }
   .grid-3 { grid-template-columns: repeat(2, 1fr); }
 }
+.last-hint { margin: -2px 0 -4px; }
