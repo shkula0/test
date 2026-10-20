@@ -445,15 +445,16 @@ async function viewPlanEditor(planId, newClientId) {
         </div>
         ${last ? html`<p class="muted small last-hint"><span class="ghost-sample">Szare</span> = ostatni trening (${formatDate(last.date)})</p>` : ''}
         <table class="sets plan-sets ${r.useTime ? 'with-time' : ''}">
-          <thead><tr><th>Seria</th><th>Powt.</th><th>kg</th>${r.useTime ? html`<th>Czas (s)</th>` : ''}<th>Intens.</th></tr></thead>
+          <thead><tr><th>Seria</th><th>${r.useTime ? 'Czas (s)' : 'Powt.'}</th><th>kg</th><th>Intens.</th></tr></thead>
           <tbody>${r.targets.map((t, ti) => html`<tr data-target="${ti}">
             <td><span class="set-no">${ti + 1}</span></td>
-            <td><input data-t="reps" value="${t.reps}" autocomplete="off" aria-label="Powtórzenia seria ${ti + 1}"
-              placeholder="${last?.sets[ti]?.reps ?? ''}"></td>
+            ${r.useTime
+              ? html`<td><input data-t="time" value="${t.time}" inputmode="numeric" autocomplete="off" aria-label="Czas seria ${ti + 1}"
+                  placeholder="${last?.sets[ti]?.duration_s ?? ''}"></td>`
+              : html`<td><input data-t="reps" value="${t.reps}" autocomplete="off" aria-label="Powtórzenia seria ${ti + 1}"
+                  placeholder="${last?.sets[ti]?.reps ?? ''}"></td>`}
             <td><input data-t="weight" value="${t.weight}" inputmode="decimal" autocomplete="off" aria-label="Ciężar seria ${ti + 1}"
               placeholder="${Number(last?.sets[ti]?.weight) > 0 ? formatNumber(last.sets[ti].weight, 2) : ''}"></td>
-            ${r.useTime ? html`<td><input data-t="time" value="${t.time}" inputmode="numeric" autocomplete="off" aria-label="Czas seria ${ti + 1}"
-              placeholder="${last?.sets[ti]?.duration_s ?? ''}"></td>` : ''}
             <td><input data-t="effort" value="${t.effort}" autocomplete="off" aria-label="Intensywność seria ${ti + 1}"></td>
           </tr>`)}</tbody>
         </table>
@@ -520,7 +521,7 @@ async function viewPlanEditor(planId, newClientId) {
     // Przerysowanie pokazuje szare wyniki z ostatniego treningu dla wybranego ćwiczenia.
     const index = fieldset.dataset.index;
     drawRows();
-    $(`[data-index="${index}"] [data-t=reps]`, rowsEl)?.focus();
+    $(`[data-index="${index}"] [data-t=reps], [data-index="${index}"] [data-t=time]`, rowsEl)?.focus();
   };
 
   rowsEl.addEventListener('input', (event) => {
@@ -652,8 +653,8 @@ async function viewPlanEditor(planId, newClientId) {
     const dayName = (row) => days.find((d) => d.id === row.dayId).name.trim();
     const filled = rows
       .map((r) => {
-        // Czas zapisujemy tylko przy ćwiczeniach oznaczonych „Na czas”.
-        const targets = cleanTargets(r.targets).map((t) => (r.useTime ? t : { ...t, time: '' }));
+        // Ćwiczenie „Na czas” ma tylko czas, pozostałe tylko powtórzenia.
+        const targets = cleanTargets(r.targets).map((t) => (r.useTime ? { ...t, reps: '' } : { ...t, time: '' }));
         // Starsze pola (serie / powtórzenia / ciężar) jako skrót – dla zgodności wstecz.
         const joined = (f) => {
           const values = [...new Set(targets.map((t) => t[f]))];
