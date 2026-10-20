@@ -74,6 +74,12 @@ export function createDemoBackend() {
       return { needsConfirmation: false };
     },
 
+    async requestPasswordReset() {
+      // W trybie demo nie wysyłamy maili.
+    },
+
+    async updatePassword() {},
+
     async signOut() {
       db.session = null;
       save();

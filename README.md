@@ -27,7 +27,8 @@ python3 -m http.server 8000
 3. W **Authentication → Sign In / Providers → Email** zdecyduj o potwierdzaniu adresu email:
    - wyłącz **Confirm email**, jeśli podopieczni mają od razu korzystać z aplikacji po rejestracji, **albo**
    - zostaw włączone. Wtedy po rejestracji przyjdzie mail z linkiem. Ustaw wcześniej **Authentication → URL Configuration → Site URL** na adres swojej aplikacji (krok 3).
-4. W **Project Settings → API** skopiuj **Project URL** i klucz **anon public**.
+4. W **Authentication → URL Configuration** ustaw **Site URL** na adres aplikacji (np. `https://shkula0.github.io/test/`) i dodaj ten sam adres w **Redirect URLs** – inaczej link „Nie pamiętam hasła” z maila nie wróci do aplikacji.
+5. W **Project Settings → API** skopiuj **Project URL** i klucz **anon public**.
 
 ### 2. Konfiguracja aplikacji
 

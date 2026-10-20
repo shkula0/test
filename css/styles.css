@@ -662,3 +662,4 @@ fieldset { margin: 0; min-width: 0; }
   .grid-3 { grid-template-columns: repeat(2, 1fr); }
 }
 .last-hint { margin: -2px 0 -4px; }
+.notice { padding: 10px 14px; border-radius: 12px; background: var(--accent-soft); color: var(--text); margin: 0; }

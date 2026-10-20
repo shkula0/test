@@ -42,6 +42,15 @@ export function createSupabaseBackend({ supabaseUrl, supabaseAnonKey }) {
       await sb.auth.signOut();
     },
 
+    // Link z maila otwiera aplikację z powrotem; adres musi być na liście Redirect URLs w Supabase.
+    async requestPasswordReset(email) {
+      await run(sb.auth.resetPasswordForEmail(email.trim(), { redirectTo: `${location.origin}${location.pathname}` }));
+    },
+
+    async updatePassword(password) {
+      await run(sb.auth.updateUser({ password }));
+    },
+
     async coachNameForCode(code) {
       return run(sb.rpc('coach_name_for_code', { p_code: code }));
     },
@@ -215,5 +224,7 @@ function translateError(message) {
   if (known[message]) return known[message];
   if (/exceeded the maximum allowed size|Payload too large/i.test(message)) return 'Plik jest za duży (maks. 50 MB).';
   if (message.startsWith('Password should be')) return 'Hasło musi mieć co najmniej 6 znaków.';
+  if (/rate limit|only request this after/i.test(message)) return 'Za dużo prób – odczekaj chwilę i spróbuj ponownie.';
+  if (/different from the old password/i.test(message)) return 'Nowe hasło musi być inne niż poprzednie.';
   return message;
 }

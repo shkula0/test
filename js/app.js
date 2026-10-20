@@ -45,9 +45,26 @@ async function router() {
   const params = new URLSearchParams(query);
 
   try {
+    // Powrót z maila „Nie pamiętam hasła”: Supabase dokleja do adresu token albo błąd.
+    if (/(^|&)(access_token|error_description)=/.test(hash)) {
+      const linkParams = new URLSearchParams(hash);
+      me = await api.currentUser();
+      if (linkParams.get('type') === 'recovery' && me) {
+        history.replaceState(null, '', '#/new-password');
+        return viewNewPassword(true);
+      }
+      history.replaceState(null, '', '#/');
+      if (linkParams.get('error_description')) {
+        return viewForgot('Link wygasł albo został już użyty. Podaj email jeszcze raz, a wyślemy nowy.');
+      }
+      return router();
+    }
+
     me = await api.currentUser();
     if (!me) {
-      return section === 'register' ? viewRegister(params.get('kod') ?? '') : viewLogin();
+      if (section === 'register') return viewRegister(params.get('kod') ?? '');
+      if (section === 'forgot') return viewForgot();
+      return viewLogin();
     }
 
     const isCoach = me.role === 'coach';
@@ -66,7 +83,8 @@ async function router() {
     if (section === 'workout' && id && action === 'edit') return viewWorkoutEditor(ctx, { workoutId: id });
     if (section === 'workout' && id) return viewWorkout(ctx, id);
     if (section === 'account') return viewAccount();
-    if (section === 'login' || section === 'register') return go('/');
+    if (section === 'new-password') return viewNewPassword(false);
+    if (section === 'login' || section === 'register' || section === 'forgot') return go('/');
     return viewNotFound();
   } catch (error) {
     console.error(error);
@@ -148,6 +166,7 @@ function viewLogin() {
         <label>Hasło<input type="password" name="password" autocomplete="current-password" ${demo ? '' : 'required'}></label>
         <button class="btn" type="submit">Zaloguj</button>
       </form>
+      <p class="center"><a href="#/forgot">Nie pamiętam hasła</a></p>
       <p class="center">Nie masz konta? <a href="#/register">Zarejestruj się</a></p>
     </main>`;
 
@@ -234,6 +253,58 @@ function viewRegister(code) {
       } else {
         go('/');
       }
+    });
+  });
+}
+
+function viewForgot(notice = '') {
+  app.innerHTML = html`
+    <main class="auth">
+      <img class="auth-logo" src="icons/logo-256.png" alt="Logo">
+      <h1>Nie pamiętam hasła</h1>
+      ${notice ? html`<p class="notice">${notice}</p>` : ''}
+      <form class="card stack" id="forgot-form">
+        <p class="muted small">Podaj email, na który masz konto. Wyślemy link do ustawienia nowego hasła.</p>
+        <label>Email<input type="email" name="email" autocomplete="email" required></label>
+        <button class="btn" type="submit">Wyślij link</button>
+      </form>
+      <p class="center"><a href="#/login">Wróć do logowania</a></p>
+    </main>`;
+
+  $('#forgot-form').addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const { email } = formData(event.target);
+    await submitting(event.target, async () => {
+      await api.requestPasswordReset(email);
+      app.innerHTML = html`<main class="auth">
+        <img class="auth-logo" src="icons/logo-256.png" alt="Logo">
+        <h1>Sprawdź pocztę</h1>
+        <p>Jeśli konto <strong>${email}</strong> istnieje, wysłaliśmy na nie link do ustawienia nowego hasła.
+          Otwórz go na tym urządzeniu. Mail może trafić do spamu.</p>
+        ${api.mode === 'demo' ? html`<p class="muted small">W trybie demo maile nie są wysyłane.</p>` : ''}
+        <a class="btn" href="#/login">Wróć do logowania</a></main>`;
+    });
+  });
+}
+
+function viewNewPassword(fromEmail) {
+  const body = html`
+    ${fromEmail ? html`<p class="notice">Ustaw nowe hasło do swojego konta.</p>` : ''}
+    <form class="card stack" id="password-form">
+      <label>Nowe hasło<input type="password" name="password" autocomplete="new-password" minlength="6" required></label>
+      <label>Powtórz nowe hasło<input type="password" name="repeat" autocomplete="new-password" minlength="6" required></label>
+      <button class="btn" type="submit">Zapisz hasło</button>
+    </form>`;
+  renderShell({ title: fromEmail ? 'Nowe hasło' : 'Zmień hasło', back: fromEmail ? null : '/account', nav: 'account', body });
+
+  $('#password-form').addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const { password, repeat } = formData(event.target);
+    if (password !== repeat) return toast('Hasła nie są takie same.', 'error');
+    await submitting(event.target, async () => {
+      await api.updatePassword(password);
+      toast('Hasło zmienione', 'success');
+      go('/');
     });
   });
 }
@@ -1006,6 +1077,7 @@ async function viewAccount() {
             : html`<p class="small">Otwórz menu przeglądarki (⋮) i wybierz <strong>Zainstaluj aplikację</strong> lub <strong>Dodaj do ekranu głównego</strong>.</p>`}
       </section>`}
 
+      <a class="btn btn-outline btn-block" href="#/new-password">${icons.edit} Zmień hasło</a>
       <button class="btn btn-outline btn-block" id="logout">${icons.logout} Wyloguj</button>
       ${api.mode === 'demo' ? html`<button class="btn btn-ghost btn-block" id="reset-demo">Przywróć dane demo</button>` : ''}`,
   });
