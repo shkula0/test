@@ -4,7 +4,9 @@ import { icons } from './icons.js';
 import { viewLibrary, viewExercise, viewExerciseEditor, normalize } from './library.js';
 import { exerciseThumb, hasMedia } from './media.js';
 import { bodySection, describeMetricRow, metricSourceLabel, readMetricForm } from './measurements.js';
-import { letterFor, planLabels, planWeight } from './plan-utils.js';
+import {
+  blankTarget, cleanTargets, letterFor, planLabels, planTargets, targetText, targetsSummary,
+} from './plan-utils.js';
 import { viewWorkout, viewWorkoutEditor, workoutList } from './workouts.js';
 import {
   $, $$, html, raw, toast, todayIso, formatDate, formatNumber, initials,
@@ -349,10 +351,13 @@ async function viewPlanEditor(planId, newClientId) {
   if (!client || client.coach_id !== me.id) return viewNotFound();
 
   const library = await api.listExercises();
-  const FIELDS = ['name', 'sets', 'reps', 'weight', 'rest', 'notes'];
+  const FIELDS = ['name', 'rest', 'notes'];
   let nextDayId = 0;
   const newDay = (name) => ({ id: `d${nextDayId++}`, name });
-  const blank = (dayId) => ({ dayId, name: '', sets: '', reps: '', weight: '', rest: '', notes: '', exercise_id: null, superset: false });
+  const blank = (dayId) => ({
+    dayId, name: '', rest: '', notes: '', exercise_id: null, superset: false,
+    targets: [blankTarget(), blankTarget(), blankTarget()],
+  });
 
   // Dni to sekcje planu. Ćwiczenie bez nazwy dnia trafia do dnia nad nim
   // (naprawia starsze plany, w których dzień wpisywano przy każdym ćwiczeniu).
@@ -367,6 +372,7 @@ async function viewPlanEditor(planId, newClientId) {
       dayId: day.id,
       exercise_id: e.exercise_id ?? null,
       superset: Boolean(e.superset),
+      targets: planTargets(e),
     });
   }
   if (!days.length) {
@@ -427,13 +433,24 @@ async function viewPlanEditor(planId, newClientId) {
           <div class="combo-list" role="listbox" hidden></div>
           <p class="combo-hint small">${linkHint(r)}</p>
         </div>
-        <div class="grid-4">
-          <label>Serie<input data-field="sets" value="${r.sets}" inputmode="numeric" autocomplete="off"></label>
-          <label>Powt.<input data-field="reps" value="${r.reps}" autocomplete="off"></label>
-          <label>Ciężar<input data-field="weight" value="${r.weight}" autocomplete="off"></label>
-          <label>Przerwa<input data-field="rest" value="${r.rest}" autocomplete="off"></label>
+        <table class="sets plan-sets">
+          <thead><tr><th>Seria</th><th>Powt.</th><th>kg</th><th>Czas (s)</th><th>Intens.</th></tr></thead>
+          <tbody>${r.targets.map((t, ti) => html`<tr data-target="${ti}">
+            <td><span class="set-no">${ti + 1}</span></td>
+            <td><input data-t="reps" value="${t.reps}" autocomplete="off" placeholder="8–10" aria-label="Powtórzenia seria ${ti + 1}"></td>
+            <td><input data-t="weight" value="${t.weight}" inputmode="decimal" autocomplete="off" aria-label="Ciężar seria ${ti + 1}"></td>
+            <td><input data-t="time" value="${t.time}" inputmode="numeric" autocomplete="off" aria-label="Czas seria ${ti + 1}"></td>
+            <td><input data-t="effort" value="${t.effort}" autocomplete="off" placeholder="60%" aria-label="Intensywność seria ${ti + 1}"></td>
+          </tr>`)}</tbody>
+        </table>
+        <div class="wk-actions">
+          <button type="button" class="chip" data-add-target ${r.targets.length >= 12 ? 'disabled' : ''}>${icons.plus} Seria</button>
+          <button type="button" class="chip" data-remove-target ${r.targets.length <= 1 ? 'disabled' : ''}>− Seria</button>
         </div>
-        <label>Wskazówki<input data-field="notes" value="${r.notes}" placeholder="np. tempo, technika" autocomplete="off"></label>
+        <div class="grid-2">
+          <label>Przerwa<input data-field="rest" value="${r.rest}" autocomplete="off" placeholder="np. 90 s"></label>
+          <label>Wskazówki<input data-field="notes" value="${r.notes}" placeholder="np. tempo, technika" autocomplete="off"></label>
+        </div>
       </fieldset>`;
     rowsEl.innerHTML = html`${days.map((day) => {
       const dayRows = rows.map((r, i) => [r, i]).filter(([r]) => r.dayId === day.id);
@@ -487,7 +504,7 @@ async function viewPlanEditor(planId, newClientId) {
     $('[data-field=name]', fieldset).value = exercise.name;
     hideSuggestions(fieldset);
     refreshHint(fieldset);
-    $('[data-field=sets]', fieldset).focus();
+    $('[data-t=reps]', fieldset)?.focus();
   };
 
   rowsEl.addEventListener('input', (event) => {
@@ -495,8 +512,13 @@ async function viewPlanEditor(planId, newClientId) {
       days.find((d) => d.id === event.target.closest('[data-day]').dataset.day).name = event.target.value;
       return;
     }
-    const field = event.target.dataset.field;
     const fieldset = event.target.closest('[data-index]');
+    if (event.target.dataset.t && fieldset) {
+      const ti = Number(event.target.closest('[data-target]').dataset.target);
+      rows[fieldset.dataset.index].targets[ti][event.target.dataset.t] = event.target.value;
+      return;
+    }
+    const field = event.target.dataset.field;
     if (!field || !fieldset) return;
     const row = rows[fieldset.dataset.index];
     row[field] = event.target.value;
@@ -577,7 +599,11 @@ async function viewPlanEditor(planId, newClientId) {
       }
       return;
     }
-    if (button.dataset.move) {
+    if ('addTarget' in button.dataset) {
+      rows[i].targets.push({ ...(rows[i].targets.at(-1) ?? blankTarget()) });
+    } else if ('removeTarget' in button.dataset) {
+      rows[i].targets.pop();
+    } else if (button.dataset.move) {
       const j = i + Number(button.dataset.move);
       [rows[i], rows[j]] = [rows[j], rows[i]];
     } else if ('remove' in button.dataset) {
@@ -606,7 +632,19 @@ async function viewPlanEditor(planId, newClientId) {
     }
     const dayName = (row) => days.find((d) => d.id === row.dayId).name.trim();
     const filled = rows
-      .map((r) => ({ ...Object.fromEntries(FIELDS.map((f) => [f, r[f].trim()])), day: dayName(r), exercise_id: r.exercise_id, superset: r.superset }))
+      .map((r) => {
+        const targets = cleanTargets(r.targets);
+        // Starsze pola (serie / powtórzenia / ciężar) jako skrót – dla zgodności wstecz.
+        const joined = (f) => {
+          const values = [...new Set(targets.map((t) => t[f]))];
+          return values.length === 1 ? values[0] : targets.map((t) => t[f] || '–').join('/');
+        };
+        return {
+          ...Object.fromEntries(FIELDS.map((f) => [f, r[f].trim()])),
+          day: dayName(r), exercise_id: r.exercise_id, superset: r.superset,
+          set_targets: targets, sets: String(targets.length), reps: joined('reps'), weight: joined('weight'),
+        };
+      })
       .filter((r) => r.name);
     // Superseria tylko tam, gdzie jest poprzednie ćwiczenie w tym samym dniu.
     const labels = planLabels(filled);
@@ -647,6 +685,7 @@ async function viewPlan(planId) {
     const body = html`
       <strong>${ex.name}</strong>
       ${details(ex) ? html`<span class="ex-details">${details(ex)}</span>` : ''}
+      ${setLines(ex)}
       ${ex.notes ? html`<span class="muted small">${ex.notes}</span>` : ''}
       ${info && (hasMedia(info) || info.description) ? html`<span class="ex-link">${icons.play} ${hasMedia(info) ? 'Zobacz, jak wykonać' : 'Opis techniki'}</span>` : ''}`;
     const content = html`<span class="ex-label">${label}</span><span class="ex-text">${body}</span>${info ? exerciseThumb(info) : ''}`;
@@ -655,11 +694,13 @@ async function viewPlan(planId) {
       : html`<li><span class="ex-row">${content}</span></li>`;
   };
 
-  const details = (ex) => [
-    ex.sets && ex.reps ? `${ex.sets} × ${ex.reps}` : ex.sets ? `${ex.sets} serie` : ex.reps ? `${ex.reps} powt.` : '',
-    planWeight(ex.weight),
-    ex.rest && `przerwa ${ex.rest}`,
-  ].filter(Boolean).join(' · ');
+  // Jednakowe serie w jednej linijce, różne – każda seria osobno.
+  const details = (ex) => [targetsSummary(planTargets(ex)), ex.rest && `przerwa ${ex.rest}`].filter(Boolean).join(' · ');
+  const setLines = (ex) => {
+    const targets = planTargets(ex);
+    if (targetsSummary(targets)) return '';
+    return html`<span class="set-lines">${targets.map((t, n) => html`<span><b>${n + 1}.</b> ${targetText(t) || '–'}</span>`)}</span>`;
+  };
 
   renderShell({
     title: plan.name,

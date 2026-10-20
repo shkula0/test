@@ -381,7 +381,13 @@ img.media { background: var(--surface); }
 .sets th:nth-child(5), .sets td:nth-child(5) { width: 46px; }
 .sets td { text-align: center; padding: 0 3px; }
 .sets input { padding: 9px 4px; text-align: center; font-variant-numeric: tabular-nums; }
-.sets input::placeholder { color: var(--muted); opacity: 0.55; }
+.sets input::placeholder { color: var(--muted); opacity: 0.6; font-weight: 500; }
+.set-target { font-size: 0.75rem; line-height: 1.25; color: var(--muted); text-align: left !important; overflow-wrap: anywhere; }
+.ghost-sample { color: var(--muted); opacity: 0.6; font-weight: 700; }
+.plan-sets th:nth-child(2), .plan-sets th:nth-child(5), .plan-sets td:nth-child(5) { width: auto; }
+.plan-sets td { padding: 0 2px; }
+.set-lines { display: flex; flex-direction: column; gap: 1px; margin: 2px 0; font-size: 0.88rem; font-variant-numeric: tabular-nums; }
+.set-lines b { color: var(--muted); font-weight: 600; }
 .set-no {
   display: inline-grid;
   place-items: center;

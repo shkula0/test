@@ -336,6 +336,11 @@ function seed() {
     ex('Dzień B', 'Podciąganie z gumą', '3', 'max', '', '2 min'),
     ex('Dzień B', 'Wykroki chodzone', '3', '12', '2×10 kg', '90 s', 'Na każdą nogę'),
   ].map((e, i) => ({ ...e, id: uid(), plan_id: plan.id, position: i, superset: SUPERSET_WITH_PREVIOUS.includes(e.name) }));
+  // Przysiad rozpisany seria po serii (piramida), reszta w skrócie „serie × powtórzenia”.
+  const pyramid = (reps, weight, effort) => ({ reps, weight, time: '', effort });
+  exercises.find((e) => e.name === 'Przysiad ze sztangą').set_targets = [
+    pyramid('8', '55', '60%'), pyramid('8', '57,5', '65%'), pyramid('6', '60', '70%'), pyramid('6', '60', '70%'),
+  ];
 
   const body_metrics = [];
   const lift_records = [];
@@ -392,7 +397,9 @@ function seed() {
       for (let set = 1; set <= count; set++) {
         workout_sets.push({
           id: uid(), workout_id: workout.id, position, label: '', exercise_name: ex.name, exercise_id: ex.exercise_id,
-          set_number: set, weight: weight ? weight + step * 2.5 : null, reps: reps - (set === count ? 1 : 0) + step * (weight ? 0 : 5),
+          set_number: set, weight: weight ? weight + step * 2.5 : null,
+          reps: weight ? reps - (set === count ? 1 : 0) : null,
+          duration_s: weight ? null : reps + step * 5,
           done: true, note: '',
         });
       }

@@ -5,7 +5,7 @@ import { api } from './data/index.js';
 import { icons } from './icons.js';
 import { normalize } from './library.js';
 import { exerciseThumb } from './media.js';
-import { planLabels, planWeight } from './plan-utils.js';
+import { isTimeBased, planLabels, planTargets, targetText } from './plan-utils.js';
 import { $, html, toast, todayIso, formatDate, formatNumber, toNumber } from './ui.js';
 
 const MAX_SETS = 12;
@@ -21,25 +21,17 @@ function plural(n, one, few, many) {
   return last >= 2 && last <= 4 && (lastTwo < 12 || lastTwo > 14) ? few : many;
 }
 
-// Liczba serii z planu: „4” → 4, „3–4” → 3, puste → null.
-function plannedSetCount(text) {
-  const n = Number.parseInt(String(text ?? '').trim(), 10);
-  return Number.isFinite(n) && n > 0 ? Math.min(n, MAX_SETS) : null;
-}
-
-function planTarget(ex) {
-  return [
-    ex.sets && ex.reps ? `${ex.sets} × ${ex.reps}` : ex.sets ? `${ex.sets} serie` : ex.reps ? `${ex.reps} powt.` : '',
-    planWeight(ex.weight),
-    ex.rest && `przerwa ${ex.rest}`,
-  ].filter(Boolean).join(' · ');
+// Liczba z pola planu, jeśli to zwykła liczba („60” → 60, „8–10” → null).
+function plainNumber(text) {
+  const value = String(text ?? '').trim();
+  return /^\d+([.,]\d+)?$/.test(value) ? Number(value.replace(',', '.')) : null;
 }
 
 export function formatSet(set) {
   const weight = set.weight != null && Number(set.weight) > 0 ? `${formatNumber(set.weight, 2)} kg` : '';
-  const reps = set.reps != null ? `${set.reps}` : '';
-  if (weight && reps) return `${weight} × ${reps}`;
-  return weight || (reps ? `${reps} powt.` : '–');
+  const amount = set.duration_s != null ? `${set.duration_s} s` : set.reps != null ? `${set.reps}` : '';
+  if (weight && amount) return `${weight} × ${amount}`;
+  return weight || (set.duration_s != null ? amount : amount ? `${amount} powt.` : '–');
 }
 
 function volumeOf(sets) {
@@ -108,7 +100,7 @@ export async function viewWorkoutEditor(ctx, { workoutId, planId, day }) {
     .filter(({ ex }) => (ex.day || '') === (workout.day || ''));
   const planByName = new Map(dayExercises.map(({ ex }) => [normalize(ex.name), ex]));
 
-  const blankSet = () => ({ weight: '', reps: '', done: false });
+  const blankSet = () => ({ weight: '', reps: '', time: '', done: false });
   let items;
   if (existing) {
     const byPosition = new Map();
@@ -120,8 +112,13 @@ export async function viewWorkoutEditor(ctx, { workoutId, planId, day }) {
       }
       const item = byPosition.get(set.position);
       if (set.note) item.note = set.note;
-      if (set.weight != null || set.reps != null || set.done) {
-        item.sets.push({ weight: set.weight != null ? inputNumber(set.weight) : '', reps: set.reps != null ? String(set.reps) : '', done: set.done });
+      if (set.weight != null || set.reps != null || set.duration_s != null || set.done) {
+        item.sets.push({
+          weight: set.weight != null ? inputNumber(set.weight) : '',
+          reps: set.reps != null ? String(set.reps) : '',
+          time: set.duration_s != null ? String(set.duration_s) : '',
+          done: set.done,
+        });
       }
     }
     items = [...byPosition.entries()].sort(([a], [b]) => a - b).map(([, item]) => item);
@@ -132,7 +129,7 @@ export async function viewWorkoutEditor(ctx, { workoutId, planId, day }) {
   } else {
     items = dayExercises.map(({ ex, label }) => {
       const prev = previous.get(normalize(ex.name));
-      const count = plannedSetCount(ex.sets) ?? prev?.sets.length ?? 1;
+      const count = planTargets(ex).length || prev?.sets.length || 1;
       return {
         name: ex.name, exercise_id: ex.exercise_id ?? null, label: label.label, joined: label.joined, note: '',
         sets: Array.from({ length: count }, blankSet),
@@ -141,7 +138,28 @@ export async function viewWorkoutEditor(ctx, { workoutId, planId, day }) {
   }
   items.forEach((item) => {
     item.showNote = Boolean(item.note);
+    const plan = planByName.get(normalize(item.name));
+    item.targets = plan ? planTargets(plan) : [];
+    const prev = previous.get(normalize(item.name));
+    // Ćwiczenie na czas (np. plank): zamiast powtórzeń wpisujemy sekundy.
+    item.timeMode = item.targets.length
+      ? isTimeBased(item.targets)
+      : Boolean(prev?.sets.some((x) => x.duration_s != null) && !prev.sets.some((x) => x.reps != null))
+        || item.sets.some((x) => x.time !== '' && x.reps === '');
   });
+
+  // Szare podpowiedzi w polach: wynik z poprzedniego treningu, a jeśli go nie ma – wartości z planu.
+  const ghostOf = (item, n) => {
+    const prev = previous.get(normalize(item.name));
+    const before = prev?.sets[n] ?? prev?.sets.at(-1);
+    const target = item.targets[n] ?? item.targets.at(-1);
+    const pick = (fromPrev, fromPlan) => (fromPrev != null ? fromPrev : fromPlan);
+    return {
+      weight: pick(before && Number(before.weight) > 0 ? Number(before.weight) : null, plainNumber(target?.weight)),
+      reps: pick(before?.reps ?? null, plainNumber(target?.reps)),
+      time: pick(before?.duration_s ?? null, plainNumber(target?.time)),
+    };
+  };
 
   const backTo = existing ? `/workout/${existing.workout.id}` : `/plan/${workout.plan_id}`;
   ctx.renderShell({
@@ -152,7 +170,8 @@ export async function viewWorkoutEditor(ctx, { workoutId, planId, day }) {
       <section class="card wk-top">
         <div class="grow">
           <strong>${workout.plan_name}</strong>${workout.day ? html` · ${workout.day}` : ''}
-          <p class="muted small">„Poprzednio” = ostatni trening z tego planu. Stuknij ✓, żeby zaliczyć serię – puste pola uzupełnią się poprzednim wynikiem.</p>
+          <p class="muted small"><span class="ghost-sample">Szare liczby</span> to wynik z poprzedniego treningu (albo z planu, jeśli to pierwszy raz).
+            Bez zmian? Stuknij ✓. Progres? Wpisz nowy wynik.</p>
         </div>
         <label class="wk-date">Data<input type="date" id="wk-date" value="${workout.performed_on}" required></label>
       </section>
@@ -178,22 +197,26 @@ export async function viewWorkoutEditor(ctx, { workoutId, planId, day }) {
             <span class="ex-label">${item.label || i + 1}</span>
             <div class="grow">
               <strong>${item.name}</strong>
-              ${plan && planTarget(plan) ? html`<br><span class="muted small">Plan: ${planTarget(plan)}</span>` : ''}
+              ${plan?.rest ? html`<br><span class="muted small">Przerwa: ${plan.rest}</span>` : ''}
               ${plan?.notes ? html`<br><span class="muted small">${plan.notes}</span>` : ''}
+              ${prev ? html`<br><span class="muted small">Poprzednio: ${formatDate(prev.date)}</span>` : ''}
             </div>
             ${info ? html`<a href="#/exercise/${info.id}" target="_blank" class="wk-thumb" aria-label="Jak wykonać">${exerciseThumb(info)}</a>` : ''}
           </div>
           <table class="sets">
-            <thead><tr><th>Seria</th><th>Poprzednio${prev ? html`<br><span class="muted">${formatDate(prev.date).slice(0, 5)}</span>` : ''}</th><th>kg</th><th>Powt.</th><th><span class="sr-only">Zrobione</span></th></tr></thead>
+            <thead><tr><th>Seria</th><th>Plan</th><th>kg</th><th>${item.timeMode ? 'Czas (s)' : 'Powt.'}</th><th><span class="sr-only">Zrobione</span></th></tr></thead>
             <tbody>${item.sets.map((set, n) => {
-              const before = prev?.sets[n];
+              const target = item.targets[n];
+              const ghost = ghostOf(item, n);
+              const amountKey = item.timeMode ? 'time' : 'reps';
               return html`<tr class="${set.done ? 'done' : ''}" data-set="${n}">
                 <td><span class="set-no">${n + 1}</span></td>
-                <td>${before ? html`<button type="button" class="prev" data-copy title="Wpisz poprzedni wynik">${formatSet(before)}</button>` : html`<span class="muted">–</span>`}</td>
+                <td class="set-target">${target ? targetText(target) || '–' : '–'}</td>
                 <td><input data-k="weight" value="${set.weight}" inputmode="decimal" autocomplete="off" aria-label="Ciężar seria ${n + 1}"
-                  placeholder="${before?.weight != null && Number(before.weight) > 0 ? formatNumber(before.weight, 2) : ''}"></td>
-                <td><input data-k="reps" value="${set.reps}" inputmode="numeric" autocomplete="off" aria-label="Powtórzenia seria ${n + 1}"
-                  placeholder="${before?.reps ?? ''}"></td>
+                  placeholder="${ghost.weight != null ? formatNumber(ghost.weight, 2) : ''}"></td>
+                <td><input data-k="${amountKey}" value="${set[amountKey]}" inputmode="numeric" autocomplete="off"
+                  aria-label="${item.timeMode ? 'Czas' : 'Powtórzenia'} seria ${n + 1}"
+                  placeholder="${ghost[amountKey] ?? ''}"></td>
                 <td><button type="button" class="done-btn" data-done aria-pressed="${set.done}" aria-label="Seria ${n + 1} zrobiona">${icons.check}</button></td>
               </tr>`;
             })}</tbody>
@@ -211,16 +234,14 @@ export async function viewWorkoutEditor(ctx, { workoutId, planId, day }) {
 
   const itemOf = (el) => items[Number(el.closest('[data-item]').dataset.item)];
   const setOf = (el) => itemOf(el).sets[Number(el.closest('[data-set]').dataset.set)];
-  const prevSetOf = (el) => {
+  // ✓ zatwierdza szare wartości w pustych polach; wpisane ręcznie zostają.
+  const confirmGhost = (el) => {
     const item = itemOf(el);
-    const n = Number(el.closest('[data-set]').dataset.set);
-    const prev = previous.get(normalize(item.name));
-    return prev?.sets[n] ?? prev?.sets.at(-1) ?? null;
-  };
-  const fillFrom = (set, source) => {
-    if (!source) return;
-    if (set.weight === '' && source.weight != null && Number(source.weight) > 0) set.weight = inputNumber(source.weight);
-    if (set.reps === '' && source.reps != null) set.reps = String(source.reps);
+    const set = setOf(el);
+    const ghost = ghostOf(item, Number(el.closest('[data-set]').dataset.set));
+    if (set.weight === '' && ghost.weight != null) set.weight = inputNumber(ghost.weight);
+    const amountKey = item.timeMode ? 'time' : 'reps';
+    if (set[amountKey] === '' && ghost[amountKey] != null) set[amountKey] = String(ghost[amountKey]);
   };
 
   container.addEventListener('input', (event) => {
@@ -236,15 +257,9 @@ export async function viewWorkoutEditor(ctx, { workoutId, planId, day }) {
     if ('done' in button.dataset) {
       const set = setOf(button);
       set.done = !set.done;
-      if (set.done) fillFrom(set, prevSetOf(button));
-    } else if ('copy' in button.dataset) {
-      const set = setOf(button);
-      const source = prevSetOf(button);
-      set.weight = source?.weight != null && Number(source.weight) > 0 ? inputNumber(source.weight) : '';
-      set.reps = source?.reps != null ? String(source.reps) : '';
+      if (set.done) confirmGhost(button);
     } else if ('addSet' in button.dataset) {
-      const last = item.sets.at(-1);
-      item.sets.push({ weight: last?.weight ?? '', reps: last?.reps ?? '', done: false });
+      item.sets.push(blankSet());
     } else if ('removeSet' in button.dataset) {
       item.sets.pop();
     } else if ('toggleNote' in button.dataset) {
@@ -287,13 +302,15 @@ function collectSets(items) {
     item.sets.forEach((set) => {
       const weight = toNumber(set.weight);
       const reps = set.reps.trim() === '' ? null : Number(set.reps.trim());
+      const time = set.time.trim() === '' ? null : Number(set.time.trim());
       if (set.weight.trim() !== '' && (weight == null || weight < 0)) throw new Error(`${item.name}: niepoprawny ciężar.`);
       if (reps != null && (!Number.isInteger(reps) || reps < 0)) throw new Error(`${item.name}: liczba powtórzeń musi być liczbą całkowitą.`);
-      if (weight == null && reps == null && !set.done) return;
-      kept.push({ weight, reps, done: set.done });
+      if (time != null && (!Number.isInteger(time) || time < 0)) throw new Error(`${item.name}: czas podaj w pełnych sekundach.`);
+      if (weight == null && reps == null && time == null && !set.done) return;
+      kept.push({ weight, reps, duration_s: time, done: set.done });
     });
     const note = item.note.trim();
-    if (!kept.length && note) kept.push({ weight: null, reps: null, done: false });
+    if (!kept.length && note) kept.push({ weight: null, reps: null, duration_s: null, done: false });
     kept.forEach((set, n) => sets.push({
       position, label: item.label ?? '', exercise_name: item.name, exercise_id: item.exercise_id ?? null,
       set_number: n + 1, ...set, note: n === 0 ? note : '',
@@ -319,10 +336,10 @@ export async function viewWorkout(ctx, id) {
     if (groups.at(-1)?.position !== set.position) groups.push({ position: set.position, name: set.exercise_name, label: set.label, note: '', sets: [] });
     const group = groups.at(-1);
     if (set.note) group.note = set.note;
-    if (set.weight != null || set.reps != null || set.done) group.sets.push(set);
+    if (set.weight != null || set.reps != null || set.duration_s != null || set.done) group.sets.push(set);
   }
   const volume = volumeOf(sets);
-  const setCount = sets.filter((s) => s.weight != null || s.reps != null || s.done).length;
+  const setCount = sets.filter((s) => s.weight != null || s.reps != null || s.duration_s != null || s.done).length;
 
   ctx.renderShell({
     title: workout.day || 'Trening',
