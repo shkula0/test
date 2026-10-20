@@ -58,6 +58,7 @@ Aplikacja to zwykłe pliki statyczne, więc wystarczy dowolny darmowy hosting z 
 3. Podopieczny zakłada konto i instaluje aplikację:
    - **Android (Chrome)**: menu ⋮ → *Zainstaluj aplikację* lub przycisk w zakładce *Konto*.
    - **iPhone (Safari)**: *Udostępnij* → *Do ekranu początkowego*.
+   - **Samsung**: instaluj przez **Chrome**, nie przez Samsung Internet – Google Play Protect blokuje aplikacje zainstalowane z przeglądarki Samsunga. Aplikacja sama to podpowiada i ma przycisk „Otwórz w Chrome”.
 
 ## Aktualizacje
 

@@ -23,6 +23,10 @@ window.addEventListener('beforeinstallprompt', (event) => {
   installPrompt = event;
 });
 
+// Adres z ?go=… (np. po przejściu z Samsung Internet do Chrome) zamieniamy na zwykły adres z „#”.
+const goTo = new URLSearchParams(location.search).get('go');
+if (goTo?.startsWith('/')) history.replaceState(null, '', `${location.pathname}#${goTo}`);
+
 window.addEventListener('hashchange', router);
 router();
 
@@ -148,6 +152,7 @@ function viewLogin() {
       <img class="auth-logo" src="icons/logo-256.png" alt="Logo">
       <h1>Trener</h1>
       <p class="muted">Plany treningowe i postępy w jednym miejscu.</p>
+      ${samsungNotice()}
 
       ${demo ? html`
         <section class="card">
@@ -191,6 +196,7 @@ function viewRegister(code) {
     <main class="auth">
       <img class="auth-logo" src="icons/logo-256.png" alt="Logo">
       <h1>Załóż konto</h1>
+      ${samsungNotice()}
       <form class="card stack" id="register-form">
         <fieldset class="segmented">
           <legend class="sr-only">Rodzaj konta</legend>
@@ -308,6 +314,24 @@ function viewNewPassword(fromEmail) {
       go('/');
     });
   });
+}
+
+function isSamsungBrowser() {
+  return /SamsungBrowser/i.test(navigator.userAgent);
+}
+
+// Link otwierający bieżącą stronę w Chrome na Androidzie.
+// Część po „#” (np. kod zaproszenia) przekazujemy jako ?go=…, bo „#” zajmuje składnia intent://.
+function chromeIntent() {
+  const go = location.hash.slice(1);
+  const query = go && go !== '/' ? `?go=${encodeURIComponent(go)}` : '';
+  return `intent://${location.host}${location.pathname}${query}#Intent;scheme=https;package=com.android.chrome;end`;
+}
+
+function samsungNotice() {
+  if (!isSamsungBrowser()) return '';
+  return html`<p class="notice small">Masz telefon Samsung? Otwórz aplikację w <strong>Chrome</strong>, żeby móc ją zainstalować –
+    instalację z przeglądarki Samsung blokuje Google Play Protect. <a href="${chromeIntent()}">Otwórz w Chrome</a></p>`;
 }
 
 // Blokuje przycisk na czas wysyłki formularza i pokazuje błąd w toaście.
@@ -1042,6 +1066,8 @@ function bestPerDay(lifts) {
 async function viewAccount() {
   const coach = me.coach_id ? await api.getProfile(me.coach_id) : null;
   const isIos = /iphone|ipad|ipod/i.test(navigator.userAgent);
+  // Samsung Internet instaluje aplikację w paczce, którą Google Play Protect blokuje – instalujemy przez Chrome.
+  const isSamsung = isSamsungBrowser();
   const standalone = matchMedia('(display-mode: standalone)').matches || navigator.standalone;
 
   renderShell({
@@ -1058,7 +1084,12 @@ async function viewAccount() {
 
       ${standalone ? '' : html`<section class="card">
         <h2>Zainstaluj aplikację</h2>
-        ${installPrompt
+        ${isSamsung
+          ? html`<p class="small">Na telefonach Samsung zainstaluj aplikację przez <strong>Chrome</strong> – instalacja z przeglądarki Samsung Internet
+              jest blokowana przez Google Play Protect.</p>
+              <a class="btn" href="${chromeIntent()}">Otwórz w Chrome</a>
+              <p class="muted small">W Chrome: menu ⋮ → <strong>Dodaj do ekranu głównego</strong> → <strong>Zainstaluj</strong>.</p>`
+          : installPrompt
           ? html`<p class="muted small">Dodaj aplikację do ekranu głównego, aby otwierać ją jak zwykłą aplikację.</p>
               <button class="btn" id="install">${icons.download} Zainstaluj</button>`
           : isIos
