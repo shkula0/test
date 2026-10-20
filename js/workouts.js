@@ -171,7 +171,7 @@ export async function viewWorkoutEditor(ctx, { workoutId, planId, day }) {
         <div class="grow">
           <strong>${workout.plan_name}</strong>${workout.day ? html` · ${workout.day}` : ''}
           <p class="muted small"><span class="ghost-sample">Szare liczby</span> to wynik z poprzedniego treningu (albo z planu, jeśli to pierwszy raz).
-            Bez zmian? Stuknij ✓. Progres? Wpisz nowy wynik.</p>
+            Bez zmian? Stuknij numer serii, żeby ją odhaczyć. Progres? Najpierw wpisz nowy wynik.</p>
         </div>
         <label class="wk-date">Data<input type="date" id="wk-date" value="${workout.performed_on}" required></label>
       </section>
@@ -204,20 +204,20 @@ export async function viewWorkoutEditor(ctx, { workoutId, planId, day }) {
             ${info ? html`<a href="#/exercise/${info.id}" target="_blank" class="wk-thumb" aria-label="Jak wykonać">${exerciseThumb(info)}</a>` : ''}
           </div>
           <table class="sets">
-            <thead><tr><th>Seria</th><th>Plan</th><th>kg</th><th>${item.timeMode ? 'Czas (s)' : 'Powt.'}</th><th><span class="sr-only">Zrobione</span></th></tr></thead>
+            <thead><tr><th>Seria</th><th>Plan</th><th>kg</th><th>${item.timeMode ? 'Czas (s)' : 'Powt.'}</th></tr></thead>
             <tbody>${item.sets.map((set, n) => {
               const target = item.targets[n];
               const ghost = ghostOf(item, n);
               const amountKey = item.timeMode ? 'time' : 'reps';
               return html`<tr class="${set.done ? 'done' : ''}" data-set="${n}">
-                <td><span class="set-no">${n + 1}</span></td>
+                <td><button type="button" class="set-no set-toggle" data-done aria-pressed="${set.done}"
+                  aria-label="Seria ${n + 1} – ${set.done ? 'zrobiona, stuknij aby cofnąć' : 'stuknij aby odhaczyć'}">${n + 1}</button></td>
                 <td class="set-target">${target ? targetText(target) || '–' : '–'}</td>
                 <td><input data-k="weight" value="${set.weight}" inputmode="decimal" autocomplete="off" aria-label="Ciężar seria ${n + 1}"
                   placeholder="${ghost.weight != null ? formatNumber(ghost.weight, 2) : ''}"></td>
                 <td><input data-k="${amountKey}" value="${set[amountKey]}" inputmode="numeric" autocomplete="off"
                   aria-label="${item.timeMode ? 'Czas' : 'Powtórzenia'} seria ${n + 1}"
                   placeholder="${ghost[amountKey] ?? ''}"></td>
-                <td><button type="button" class="done-btn" data-done aria-pressed="${set.done}" aria-label="Seria ${n + 1} zrobiona">${icons.check}</button></td>
               </tr>`;
             })}</tbody>
           </table>
