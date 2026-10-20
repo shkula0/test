@@ -686,3 +686,5 @@ fieldset { margin: 0; min-width: 0; }
 .stat-pair { font-size: 0.85rem; color: var(--muted); }
 .stat-pair b { font-size: 1.35rem; font-weight: 800; color: var(--text); margin-right: 4px; font-variant-numeric: tabular-nums; }
 .tabs a { font-size: 0.92rem; padding: 8px 4px; }
+.card > h2:has(> .icon) { display: flex; align-items: center; gap: 8px; }
+.card > h2 > .icon { color: var(--accent); }

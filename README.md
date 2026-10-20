@@ -7,6 +7,7 @@ Aplikacja na telefon (PWA) dla trenera personalnego i jego podopiecznych.
 - **Biblioteka ćwiczeń**: bazowy zestaw ponad 40 ćwiczeń, a do tego własne ćwiczenia trenera ze zdjęciem lub filmem (plik z telefonu albo link do YouTube) i opisem techniki. Ćwiczenie można udostępnić innym trenerom. Podopieczny klika ćwiczenie w planie i widzi, jak je wykonać.
 - **Dziennik treningów**: trening startuje z wybranego dnia planu ze wszystkimi ćwiczeniami; w polach na szaro widać wynik z poprzedniego treningu z tego planu (albo wartości z planu), a stuknięcie numeru serii odhacza ją i zatwierdza szare wartości. Treningi zapisuje trener albo podopieczny, a serie trafiają do wykresów siły.
 - **Podsumowanie** na start: największy progres, tonaż tygodnia i miesiąca z porównaniem do poprzedniego okresu, liczba treningów, rekordy z 30 dni i seria tygodni z treningiem.
+- **Pobieranie wyników**: w zakładce Postępy raport PDF (podsumowanie, progres, pomiary, historia treningów) i plik Excel ze wszystkimi danymi.
 - Podopieczni dołączają do trenera przez **link z kodem zaproszenia**.
 - Aplikację instaluje się z przeglądarki na ekranie głównym telefonu (Android i iPhone), bez sklepu z aplikacjami.
 
@@ -84,6 +85,8 @@ Po zmianie plików podbij wersję w [`sw.js`](sw.js) (`const CACHE = 'trener-v2'
 | `supabase/005_treningi.sql` | Dziennik treningów: treningi i serie |
 | `supabase/006_serie_w_planie.sql` | Każda seria w planie osobno (powt., kg, czas, intensywność), czas serii w treningu |
 | `vendor/supabase.js` | Biblioteka supabase-js 2.118.0 (licencja MIT) |
+| `js/export.js` | Eksport do PDF i Excela |
+| `vendor/jspdf*.js`, `vendor/xlsx.mini.min.js`, `vendor/fonts/` | jsPDF 4.2.1 + AutoTable 5.0.9 (MIT), SheetJS 0.18.5 (Apache-2.0), czcionka DejaVu Sans z polskimi znakami – ładowane tylko przy eksporcie |
 
 ## Pomysły na kolejne wersje
 

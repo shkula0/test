@@ -9,6 +9,7 @@ import {
 } from './plan-utils.js';
 import { previousByExercise, viewWorkout, viewWorkoutEditor, workoutList } from './workouts.js';
 import { computeSummary, exerciseProgress, strengthEntries, summarySection } from './summary.js';
+import { exportExcel, exportPdf } from './export.js';
 import {
   $, $$, html, raw, toast, todayIso, formatDate, formatNumber, initials,
   estimatedOneRepMax, formData, toNumber,
@@ -922,6 +923,15 @@ async function mountProgress(container, clientId) {
     container.innerHTML = html`
       ${progressCard(exerciseProgress(strength), state.exercise)}
 
+      <section class="card">
+        <h2>${icons.download} Pobierz wyniki</h2>
+        <p class="muted small">Podsumowanie, progres w ćwiczeniach, pomiary i historia treningów.</p>
+        <div class="row gap">
+          <button type="button" class="btn grow" data-export="pdf">PDF</button>
+          <button type="button" class="btn btn-outline grow" data-export="xlsx">Excel</button>
+        </div>
+      </section>
+
       ${bodySection(metrics, state)}
 
       <section class="card">
@@ -968,6 +978,22 @@ async function mountProgress(container, clientId) {
       state.metric = tile.dataset.metric;
       await draw();
       $('.chart-title', container)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      return;
+    }
+    const exportButton = event.target.closest('[data-export]');
+    if (exportButton) {
+      const label = exportButton.textContent;
+      exportButton.disabled = true;
+      exportButton.textContent = 'Przygotowuję…';
+      try {
+        await (exportButton.dataset.export === 'pdf' ? exportPdf(clientId) : exportExcel(clientId));
+      } catch (error) {
+        console.error(error);
+        toast(error.message || 'Nie udało się przygotować pliku.', 'error');
+      } finally {
+        exportButton.disabled = false;
+        exportButton.textContent = label;
+      }
       return;
     }
     const progressRow = event.target.closest('[data-progress]');
