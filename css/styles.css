@@ -386,6 +386,10 @@ img.media { background: var(--surface); }
 .ghost-sample { color: var(--muted); opacity: 0.6; font-weight: 700; }
 .plan-sets th:nth-child(2), .plan-sets th:nth-child(5), .plan-sets td:nth-child(5) { width: auto; }
 .plan-sets td { padding: 0 2px; }
+.chip-check { display: inline-flex; align-items: center; gap: 6px; flex-direction: row; font-weight: 500; color: var(--text); cursor: pointer; }
+.chip-check input { width: 16px; height: 16px; margin: 0; accent-color: var(--accent-text); }
+.chip-check.active { color: var(--accent-text); }
+.plan-sets-hint { margin: -4px 0 0; }
 .set-lines { display: flex; flex-direction: column; gap: 1px; margin: 2px 0; font-size: 0.88rem; font-variant-numeric: tabular-nums; }
 .set-lines b { color: var(--muted); font-weight: 600; }
 .set-no {

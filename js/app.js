@@ -356,7 +356,7 @@ async function viewPlanEditor(planId, newClientId) {
   const newDay = (name) => ({ id: `d${nextDayId++}`, name });
   const blank = (dayId) => ({
     dayId, name: '', rest: '', notes: '', exercise_id: null, superset: false,
-    targets: [blankTarget(), blankTarget(), blankTarget()],
+    targets: [blankTarget(), blankTarget(), blankTarget()], useTime: false,
   });
 
   // Dni to sekcje planu. Ćwiczenie bez nazwy dnia trafia do dnia nad nim
@@ -374,6 +374,7 @@ async function viewPlanEditor(planId, newClientId) {
       superset: Boolean(e.superset),
       targets: planTargets(e),
     });
+    rows.at(-1).useTime = rows.at(-1).targets.some((t) => t.time.trim());
   }
   if (!days.length) {
     days.push(newDay('Dzień A'));
@@ -433,20 +434,22 @@ async function viewPlanEditor(planId, newClientId) {
           <div class="combo-list" role="listbox" hidden></div>
           <p class="combo-hint small">${linkHint(r)}</p>
         </div>
-        <table class="sets plan-sets">
-          <thead><tr><th>Seria</th><th>Powt.</th><th>kg</th><th>Czas (s)</th><th>Intens.</th></tr></thead>
+        <table class="sets plan-sets ${r.useTime ? 'with-time' : ''}">
+          <thead><tr><th>Seria</th><th>Powt.</th><th>kg</th>${r.useTime ? html`<th>Czas (s)</th>` : ''}<th>Intens.</th></tr></thead>
           <tbody>${r.targets.map((t, ti) => html`<tr data-target="${ti}">
             <td><span class="set-no">${ti + 1}</span></td>
-            <td><input data-t="reps" value="${t.reps}" autocomplete="off" placeholder="8–10" aria-label="Powtórzenia seria ${ti + 1}"></td>
+            <td><input data-t="reps" value="${t.reps}" autocomplete="off" aria-label="Powtórzenia seria ${ti + 1}"></td>
             <td><input data-t="weight" value="${t.weight}" inputmode="decimal" autocomplete="off" aria-label="Ciężar seria ${ti + 1}"></td>
-            <td><input data-t="time" value="${t.time}" inputmode="numeric" autocomplete="off" aria-label="Czas seria ${ti + 1}"></td>
-            <td><input data-t="effort" value="${t.effort}" autocomplete="off" placeholder="60%" aria-label="Intensywność seria ${ti + 1}"></td>
+            ${r.useTime ? html`<td><input data-t="time" value="${t.time}" inputmode="numeric" autocomplete="off" aria-label="Czas seria ${ti + 1}"></td>` : ''}
+            <td><input data-t="effort" value="${t.effort}" autocomplete="off" aria-label="Intensywność seria ${ti + 1}"></td>
           </tr>`)}</tbody>
         </table>
         <div class="wk-actions">
           <button type="button" class="chip" data-add-target ${r.targets.length >= 12 ? 'disabled' : ''}>${icons.plus} Seria</button>
           <button type="button" class="chip" data-remove-target ${r.targets.length <= 1 ? 'disabled' : ''}>− Seria</button>
+          <label class="chip chip-check ${r.useTime ? 'active' : ''}"><input type="checkbox" data-use-time ${r.useTime ? 'checked' : ''}> Na czas (s)</label>
         </div>
+        <p class="muted small plan-sets-hint">Intens. = np. 60% albo RPE 8. Puste pola zostaw – podopieczny ich nie zobaczy.</p>
         <div class="grid-2">
           <label>Przerwa<input data-field="rest" value="${r.rest}" autocomplete="off" placeholder="np. 90 s"></label>
           <label>Wskazówki<input data-field="notes" value="${r.notes}" placeholder="np. tempo, technika" autocomplete="off"></label>
@@ -533,6 +536,9 @@ async function viewPlanEditor(planId, newClientId) {
     if (!fieldset) return;
     if ('superset' in event.target.dataset) {
       rows[fieldset.dataset.index].superset = event.target.checked;
+      drawRows();
+    } else if ('useTime' in event.target.dataset) {
+      rows[fieldset.dataset.index].useTime = event.target.checked;
       drawRows();
     }
   });
@@ -633,7 +639,8 @@ async function viewPlanEditor(planId, newClientId) {
     const dayName = (row) => days.find((d) => d.id === row.dayId).name.trim();
     const filled = rows
       .map((r) => {
-        const targets = cleanTargets(r.targets);
+        // Czas zapisujemy tylko przy ćwiczeniach oznaczonych „Na czas”.
+        const targets = cleanTargets(r.targets).map((t) => (r.useTime ? t : { ...t, time: '' }));
         // Starsze pola (serie / powtórzenia / ciężar) jako skrót – dla zgodności wstecz.
         const joined = (f) => {
           const values = [...new Set(targets.map((t) => t[f]))];
