@@ -4,7 +4,7 @@ import { icons } from './icons.js';
 import { viewLibrary, viewExercise, viewExerciseEditor, normalize } from './library.js';
 import { exerciseThumb, hasMedia } from './media.js';
 import { bodySection, describeMetricRow, metricSourceLabel, readMetricForm } from './measurements.js';
-import { planLabels } from './plan-utils.js';
+import { letterFor, planLabels, planWeight } from './plan-utils.js';
 import { viewWorkout, viewWorkoutEditor, workoutList } from './workouts.js';
 import {
   $, $$, html, raw, toast, todayIso, formatDate, formatNumber, initials,
@@ -349,14 +349,35 @@ async function viewPlanEditor(planId, newClientId) {
   if (!client || client.coach_id !== me.id) return viewNotFound();
 
   const library = await api.listExercises();
-  const FIELDS = ['day', 'name', 'sets', 'reps', 'weight', 'rest', 'notes'];
-  const blank = (day = 'Dzień A') => ({ day, name: '', sets: '', reps: '', weight: '', rest: '', notes: '', exercise_id: null, superset: false });
-  const rows = existing?.exercises.map((e) => ({
-    ...Object.fromEntries(FIELDS.map((f) => [f, e[f] ?? ''])),
-    exercise_id: e.exercise_id ?? null,
-    superset: Boolean(e.superset),
-  }))
-    ?? [blank()];
+  const FIELDS = ['name', 'sets', 'reps', 'weight', 'rest', 'notes'];
+  let nextDayId = 0;
+  const newDay = (name) => ({ id: `d${nextDayId++}`, name });
+  const blank = (dayId) => ({ dayId, name: '', sets: '', reps: '', weight: '', rest: '', notes: '', exercise_id: null, superset: false });
+
+  // Dni to sekcje planu. Ćwiczenie bez nazwy dnia trafia do dnia nad nim
+  // (naprawia starsze plany, w których dzień wpisywano przy każdym ćwiczeniu).
+  const days = [];
+  let rows = [];
+  for (const e of existing?.exercises ?? []) {
+    const name = (e.day ?? '').trim() || days.at(-1)?.name || 'Dzień A';
+    let day = days.find((d) => normalize(d.name) === normalize(name));
+    if (!day) days.push(day = newDay(name));
+    rows.push({
+      ...Object.fromEntries(FIELDS.map((f) => [f, e[f] ?? ''])),
+      dayId: day.id,
+      exercise_id: e.exercise_id ?? null,
+      superset: Boolean(e.superset),
+    });
+  }
+  if (!days.length) {
+    days.push(newDay('Dzień A'));
+    rows.push(blank(days[0].id));
+  }
+  const dayOrder = (row) => days.findIndex((d) => d.id === row.dayId);
+  const sortRows = () => {
+    rows = rows.map((r, i) => [r, i]).sort(([a, i], [b, j]) => dayOrder(a) - dayOrder(b) || i - j).map(([r]) => r);
+  };
+  sortRows();
 
   renderShell({
     title: existing ? 'Edytuj plan' : 'Nowy plan',
@@ -369,9 +390,8 @@ async function viewPlanEditor(planId, newClientId) {
           <label>Nazwa planu<input name="planName" value="${existing?.plan.name ?? ''}" placeholder="np. FBW – 3× w tygodniu" required></label>
           <label>Uwagi dla podopiecznego<textarea name="planNotes" rows="3" placeholder="Rozgrzewka, wskazówki, częstotliwość…">${existing?.plan.notes ?? ''}</textarea></label>
         </section>
-        <h2>Ćwiczenia</h2>
         <div id="rows" class="stack"></div>
-        <button type="button" class="btn btn-outline btn-block" id="add-row">${icons.plus} Dodaj ćwiczenie</button>
+        <button type="button" class="btn btn-outline btn-block" id="add-day">${icons.plus} Dodaj dzień (kolejny trening)</button>
         <div class="sticky-actions"><button class="btn btn-block" type="submit">Zapisz plan</button></div>
       </form>`,
   });
@@ -387,8 +407,8 @@ async function viewPlanEditor(planId, newClientId) {
   // Inputy mają data-field zamiast name, żeby przeglądarka nie podpowiadała tu imienia i nazwiska.
   const rowsEl = $('#rows');
   const drawRows = () => {
-    const labels = planLabels(rows);
-    rowsEl.innerHTML = html`${rows.map((r, i) => html`
+    const labels = planLabels(rows.map((r) => ({ ...r, day: r.dayId })));
+    const exerciseCard = (r, i) => html`
       <fieldset class="card exercise-edit ${labels[i].size > 1 ? 'in-superset' : ''} ${labels[i].joined ? 'joined' : ''}" data-index="${i}">
         ${labels[i].canJoin ? html`<label class="superset-toggle">
           <input type="checkbox" data-superset ${r.superset ? 'checked' : ''}>
@@ -396,10 +416,9 @@ async function viewPlanEditor(planId, newClientId) {
         </label>` : ''}
         <div class="row">
           <span class="ex-label" title="Oznaczenie w planie">${labels[i].label}</span>
-          <input class="day-input" data-field="day" value="${r.day}" placeholder="Dzień" aria-label="Dzień" autocomplete="off">
           <span class="grow"></span>
-          <button type="button" class="icon-btn" data-move="-1" aria-label="Przesuń w górę" ${i === 0 ? 'disabled' : ''}>${icons.up}</button>
-          <button type="button" class="icon-btn" data-move="1" aria-label="Przesuń w dół" ${i === rows.length - 1 ? 'disabled' : ''}>${icons.down}</button>
+          <button type="button" class="icon-btn" data-move="-1" aria-label="Przesuń w górę" ${rows[i - 1]?.dayId !== r.dayId ? 'disabled' : ''}>${icons.up}</button>
+          <button type="button" class="icon-btn" data-move="1" aria-label="Przesuń w dół" ${rows[i + 1]?.dayId !== r.dayId ? 'disabled' : ''}>${icons.down}</button>
           <button type="button" class="icon-btn danger" data-remove aria-label="Usuń ćwiczenie">${icons.trash}</button>
         </div>
         <div class="combo">
@@ -415,7 +434,20 @@ async function viewPlanEditor(planId, newClientId) {
           <label>Przerwa<input data-field="rest" value="${r.rest}" autocomplete="off"></label>
         </div>
         <label>Wskazówki<input data-field="notes" value="${r.notes}" placeholder="np. tempo, technika" autocomplete="off"></label>
-      </fieldset>`)}`;
+      </fieldset>`;
+    rowsEl.innerHTML = html`${days.map((day) => {
+      const dayRows = rows.map((r, i) => [r, i]).filter(([r]) => r.dayId === day.id);
+      return html`
+        <section class="day-edit" data-day="${day.id}">
+          <div class="day-edit-head">
+            <input class="day-name" data-day-name value="${day.name}" placeholder="Nazwa dnia, np. Dzień A" aria-label="Nazwa dnia" autocomplete="off" required>
+            <button type="button" class="icon-btn danger" data-remove-day aria-label="Usuń dzień" ${days.length === 1 ? 'disabled' : ''}>${icons.trash}</button>
+          </div>
+          ${dayRows.map(([r, i]) => exerciseCard(r, i))}
+          ${dayRows.length ? '' : html`<p class="muted small">Ten dzień nie ma jeszcze ćwiczeń.</p>`}
+          <button type="button" class="btn btn-outline btn-block" data-add-row>${icons.plus} Dodaj ćwiczenie</button>
+        </section>`;
+    })}`;
   };
   drawRows();
 
@@ -459,6 +491,10 @@ async function viewPlanEditor(planId, newClientId) {
   };
 
   rowsEl.addEventListener('input', (event) => {
+    if ('dayName' in event.target.dataset) {
+      days.find((d) => d.id === event.target.closest('[data-day]').dataset.day).name = event.target.value;
+      return;
+    }
     const field = event.target.dataset.field;
     const fieldset = event.target.closest('[data-index]');
     if (!field || !fieldset) return;
@@ -475,8 +511,6 @@ async function viewPlanEditor(planId, newClientId) {
     if (!fieldset) return;
     if ('superset' in event.target.dataset) {
       rows[fieldset.dataset.index].superset = event.target.checked;
-      drawRows();
-    } else if (event.target.dataset.field === 'day') {
       drawRows();
     }
   });
@@ -502,7 +536,27 @@ async function viewPlanEditor(planId, newClientId) {
   rowsEl.addEventListener('click', async (event) => {
     const button = event.target.closest('button');
     if (!button) return;
+    const dayId = button.closest('[data-day]')?.dataset.day;
+    if ('addRow' in button.dataset) {
+      // Nowe ćwiczenie na końcu tego dnia.
+      const lastInDay = rows.findLastIndex((r) => r.dayId === dayId);
+      const at = lastInDay >= 0 ? lastInDay + 1 : rows.findIndex((r) => dayOrder(r) > days.findIndex((d) => d.id === dayId));
+      rows.splice(at >= 0 ? at : rows.length, 0, blank(dayId));
+      drawRows();
+      $$(`[data-day="${dayId}"] [data-field=name]`, rowsEl).at(-1).focus();
+      return;
+    }
+    if ('removeDay' in button.dataset) {
+      const day = days.find((d) => d.id === dayId);
+      const count = rows.filter((r) => r.dayId === dayId && r.name.trim()).length;
+      if (count && !confirm(`Usunąć „${day.name}” razem z ćwiczeniami (${count})?`)) return;
+      days.splice(days.indexOf(day), 1);
+      rows = rows.filter((r) => r.dayId !== dayId);
+      drawRows();
+      return;
+    }
     const fieldset = button.closest('[data-index]');
+    if (!fieldset) return;
     const i = Number(fieldset.dataset.index);
     if (button.dataset.pick) {
       pick(fieldset, library.find((e) => e.id === button.dataset.pick));
@@ -531,17 +585,28 @@ async function viewPlanEditor(planId, newClientId) {
     }
     drawRows();
   });
-  $('#add-row').addEventListener('click', () => {
-    rows.push(blank(rows.at(-1)?.day ?? 'Dzień A'));
+  $('#add-day').addEventListener('click', () => {
+    const taken = new Set(days.map((d) => normalize(d.name)));
+    let n = days.length;
+    while (taken.has(normalize(`Dzień ${letterFor(n)}`))) n += 1;
+    const day = newDay(`Dzień ${letterFor(n)}`);
+    days.push(day);
+    rows.push(blank(day.id));
     drawRows();
-    $$('[data-field=name]', rowsEl).at(-1).focus();
+    $$(`[data-day="${day.id}"] [data-field=name]`, rowsEl).at(-1).focus();
   });
 
   $('#plan-form').addEventListener('submit', async (event) => {
     event.preventDefault();
     const { planName, planNotes } = formData(event.target);
+    const names = days.map((d) => normalize(d.name));
+    if (names.some((n, i) => names.indexOf(n) !== i)) {
+      toast('Dwa dni mają tę samą nazwę – zmień jedną z nich.', 'error');
+      return;
+    }
+    const dayName = (row) => days.find((d) => d.id === row.dayId).name.trim();
     const filled = rows
-      .map((r) => ({ ...Object.fromEntries(FIELDS.map((f) => [f, r[f].trim()])), exercise_id: r.exercise_id, superset: r.superset }))
+      .map((r) => ({ ...Object.fromEntries(FIELDS.map((f) => [f, r[f].trim()])), day: dayName(r), exercise_id: r.exercise_id, superset: r.superset }))
       .filter((r) => r.name);
     // Superseria tylko tam, gdzie jest poprzednie ćwiczenie w tym samym dniu.
     const labels = planLabels(filled);
@@ -592,7 +657,7 @@ async function viewPlan(planId) {
 
   const details = (ex) => [
     ex.sets && ex.reps ? `${ex.sets} × ${ex.reps}` : ex.sets ? `${ex.sets} serie` : ex.reps ? `${ex.reps} powt.` : '',
-    ex.weight,
+    planWeight(ex.weight),
     ex.rest && `przerwa ${ex.rest}`,
   ].filter(Boolean).join(' · ');
 

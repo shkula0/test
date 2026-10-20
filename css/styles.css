@@ -222,6 +222,10 @@ p { margin: 0 0 0.5rem; }
 
 .ex-details { font-weight: 600; color: var(--accent); font-variant-numeric: tabular-nums; }
 
+.day-edit { display: flex; flex-direction: column; gap: 12px; padding: 12px; border: 2px dashed var(--border); border-radius: calc(var(--radius) + 4px); }
+.day-edit + .day-edit { margin-top: 8px; }
+.day-edit-head { display: flex; align-items: center; gap: 8px; }
+.day-name { font-size: 1.05rem; font-weight: 700; color: var(--accent); background: var(--surface); }
 .exercise-edit { display: flex; flex-direction: column; gap: 10px; }
 .exercise-edit .ex-label { margin-right: 6px; }
 .exercise-edit.in-superset { border-left: 4px solid var(--accent); }
@@ -236,7 +240,6 @@ p { margin: 0 0 0.5rem; }
   cursor: pointer;
 }
 .superset-toggle input { width: 20px; height: 20px; margin: 0; accent-color: var(--accent); }
-.day-input { max-width: 140px; font-weight: 600; }
 
 /* ---------- Biblioteka ćwiczeń ---------- */
 

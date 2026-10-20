@@ -30,7 +30,13 @@ export function planLabels(exercises) {
   return labels;
 }
 
-function letterFor(n) {
+export function letterFor(n) {
   const char = (i) => String.fromCharCode(65 + i);
   return n < 26 ? char(n) : char(Math.floor(n / 26) - 1) + char(n % 26);
+}
+
+// Ciężar do wyświetlenia w planie – „0” / „0 kg” (ćwiczenie bez obciążenia) pomijamy.
+export function planWeight(weight) {
+  const text = (weight ?? '').trim();
+  return /^0+([.,]0+)?\s*(kg)?$/i.test(text) ? '' : text;
 }

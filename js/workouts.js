@@ -5,7 +5,7 @@ import { api } from './data/index.js';
 import { icons } from './icons.js';
 import { normalize } from './library.js';
 import { exerciseThumb } from './media.js';
-import { planLabels } from './plan-utils.js';
+import { planLabels, planWeight } from './plan-utils.js';
 import { $, html, toast, todayIso, formatDate, formatNumber, toNumber } from './ui.js';
 
 const MAX_SETS = 12;
@@ -30,7 +30,7 @@ function plannedSetCount(text) {
 function planTarget(ex) {
   return [
     ex.sets && ex.reps ? `${ex.sets} × ${ex.reps}` : ex.sets ? `${ex.sets} serie` : ex.reps ? `${ex.reps} powt.` : '',
-    ex.weight,
+    planWeight(ex.weight),
     ex.rest && `przerwa ${ex.rest}`,
   ].filter(Boolean).join(' · ');
 }
