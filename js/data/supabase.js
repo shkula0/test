@@ -16,6 +16,18 @@ export function createSupabaseBackend({ supabaseUrl, supabaseAnonKey }) {
     return data.session?.user.id ?? null;
   }
 
+  // Wysyła zdjęcie lub film do Storage (folder trenera) i zwraca pola do zapisania w tabeli.
+  async function uploadMedia(file) {
+    const ext = (file.name.split('.').pop() || 'bin').toLowerCase().replace(/[^a-z0-9]/g, '');
+    const path = `${await userId()}/${crypto.randomUUID()}.${ext}`;
+    await run(sb.storage.from(MEDIA_BUCKET).upload(path, file, { contentType: file.type, cacheControl: '31536000' }));
+    return {
+      media_path: path,
+      media_url: sb.storage.from(MEDIA_BUCKET).getPublicUrl(path).data.publicUrl,
+      media_type: file.type.startsWith('video/') ? 'video' : 'image',
+    };
+  }
+
   return {
     mode: 'supabase',
 
@@ -112,14 +124,7 @@ export function createSupabaseBackend({ supabaseUrl, supabaseAnonKey }) {
       const previous = exercise.id ? await this.getExercise(exercise.id) : null;
 
       if (file) {
-        const ext = (file.name.split('.').pop() || 'bin').toLowerCase().replace(/[^a-z0-9]/g, '');
-        const path = `${await userId()}/${crypto.randomUUID()}.${ext}`;
-        await run(sb.storage.from(MEDIA_BUCKET).upload(path, file, { contentType: file.type, cacheControl: '31536000' }));
-        Object.assign(fields, {
-          media_path: path,
-          media_url: sb.storage.from(MEDIA_BUCKET).getPublicUrl(path).data.publicUrl,
-          media_type: file.type.startsWith('video/') ? 'video' : 'image',
-        });
+        Object.assign(fields, await uploadMedia(file));
       } else if (removeMedia) {
         Object.assign(fields, { media_path: null, media_url: null, media_type: null });
       }
@@ -180,6 +185,51 @@ export function createSupabaseBackend({ supabaseUrl, supabaseAnonKey }) {
 
     async deleteWorkout(id) {
       await run(sb.from('workouts').delete().eq('id', id));
+    },
+
+    async listRoutines() {
+      return run(sb.from('routines').select('*').order('created_at', { ascending: false }));
+    },
+
+    async getRoutine(id) {
+      return run(sb.from('routines').select('*').eq('id', id).maybeSingle());
+    },
+
+    async saveRoutine(routine, { file, removeMedia } = {}) {
+      const fields = {
+        title: routine.title, category: routine.category, duration_min: routine.duration_min, level: routine.level,
+        description: routine.description, video_url: routine.video_url, items: routine.items,
+      };
+      const previous = routine.id ? await this.getRoutine(routine.id) : null;
+      if (file) Object.assign(fields, await uploadMedia(file));
+      else if (removeMedia) Object.assign(fields, { media_path: null, media_url: null, media_type: null });
+      const saved = routine.id
+        ? await run(sb.from('routines').update(fields).eq('id', routine.id).select().single())
+        : await run(sb.from('routines').insert(fields).select().single());
+      if (previous?.media_path && (file || removeMedia)) await sb.storage.from(MEDIA_BUCKET).remove([previous.media_path]);
+      return saved.id;
+    },
+
+    async deleteRoutine(id) {
+      const routine = await this.getRoutine(id);
+      await run(sb.from('routines').delete().eq('id', id));
+      if (routine?.media_path) await sb.storage.from(MEDIA_BUCKET).remove([routine.media_path]);
+    },
+
+    // Wykonania rutyn: podopiecznego (clientId) albo wszystkich podopiecznych przy danej rutynie (routineId).
+    async listCompletions({ clientId, routineId }) {
+      let query = sb.from('routine_completions').select('*').order('completed_on', { ascending: false });
+      if (clientId) query = query.eq('client_id', clientId);
+      if (routineId) query = query.eq('routine_id', routineId);
+      return run(query);
+    },
+
+    async addCompletion(routineId, clientId, completedOn) {
+      await run(sb.from('routine_completions').insert({ routine_id: routineId, client_id: clientId, completed_on: completedOn }));
+    },
+
+    async deleteCompletion(id) {
+      await run(sb.from('routine_completions').delete().eq('id', id));
     },
 
     async listMetrics(clientId) {

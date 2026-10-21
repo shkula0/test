@@ -10,6 +10,7 @@ import {
 import { formatSet, previousByExercise, viewWorkout, viewWorkoutEditor, workoutList } from './workouts.js';
 import { computeSummary, exerciseProgress, strengthEntries, summarySection } from './summary.js';
 import { exportExcel, exportPdf } from './export.js';
+import { viewRoutine, viewRoutineEditor, viewRoutines } from './routines.js';
 import {
   $, $$, html, raw, toast, todayIso, formatDate, formatNumber, initials,
   estimatedOneRepMax, formData, toNumber,
@@ -85,6 +86,10 @@ async function router() {
     if (section === 'exercise' && id === 'new' && isCoach) return viewExerciseEditor(ctx, null);
     if (section === 'exercise' && id && action === 'edit' && isCoach) return viewExerciseEditor(ctx, id);
     if (section === 'exercise' && id) return viewExercise(ctx, id, params);
+    if (section === 'routines') return viewRoutines(ctx);
+    if (section === 'routine' && id === 'new' && isCoach) return viewRoutineEditor(ctx, null);
+    if (section === 'routine' && id && action === 'edit' && isCoach) return viewRoutineEditor(ctx, id);
+    if (section === 'routine' && id) return viewRoutine(ctx, id);
     if (section === 'workout' && id === 'new') return viewWorkoutEditor(ctx, { planId: params.get('plan'), day: params.get('day') ?? '' });
     if (section === 'workout' && id && action === 'edit') return viewWorkoutEditor(ctx, { workoutId: id });
     if (section === 'workout' && id) return viewWorkout(ctx, id);
@@ -124,8 +129,10 @@ function renderShell({ title, back, body, nav }) {
 
 function navBar(active) {
   const items = me.role === 'coach'
-    ? [['clients', '/', 'Podopieczni', icons.users], ['library', '/exercises', 'Ćwiczenia', icons.logo], ['account', '/account', 'Konto', icons.user]]
-    : [['plans', '/', 'Plany', icons.list], ['progress', '/progress', 'Postępy', icons.chart], ['account', '/account', 'Konto', icons.user]];
+    ? [['clients', '/', 'Podopieczni', icons.users], ['library', '/exercises', 'Ćwiczenia', icons.logo],
+      ['routines', '/routines', 'Rutyny', icons.play], ['account', '/account', 'Konto', icons.user]]
+    : [['plans', '/', 'Plany', icons.list], ['routines', '/routines', 'Rutyny', icons.play],
+      ['progress', '/progress', 'Postępy', icons.chart], ['account', '/account', 'Konto', icons.user]];
   return html`<nav class="tabbar">
     ${items.map(([key, href, label, icon]) => html`
       <a href="#${href}" class="${key === active ? 'active' : ''}" ${key === active ? html`aria-current="page"` : ''}>
@@ -425,10 +432,10 @@ async function viewClient(clientId, tab) {
 }
 
 async function clientSummary(clientId) {
-  const [workouts, workoutSets, lifts] = await Promise.all([
-    api.listWorkouts(clientId), api.listWorkoutSets(clientId), api.listLifts(clientId),
+  const [workouts, workoutSets, lifts, completions] = await Promise.all([
+    api.listWorkouts(clientId), api.listWorkoutSets(clientId), api.listLifts(clientId), api.listCompletions({ clientId }),
   ]);
-  return summarySection(computeSummary({ workouts, workoutSets, strength: strengthEntries(lifts, workoutSets) }));
+  return summarySection(computeSummary({ workouts, workoutSets, completions, strength: strengthEntries(lifts, workoutSets) }));
 }
 
 async function workoutsSection(clientId, emptyText, limit = Infinity) {

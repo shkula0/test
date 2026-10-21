@@ -231,6 +231,63 @@ export function createDemoBackend() {
       save();
     },
 
+    async listRoutines() {
+      const me = db.profiles.find((p) => p.id === db.session);
+      return db.routines.filter((r) => r.coach_id === db.session || r.coach_id === me?.coach_id)
+        .sort((a, b) => b.created_at.localeCompare(a.created_at));
+    },
+
+    async getRoutine(id) {
+      return db.routines.find((r) => r.id === id) ?? null;
+    },
+
+    async saveRoutine(routine, { file, removeMedia } = {}) {
+      const fields = {
+        title: routine.title, category: routine.category, duration_min: routine.duration_min, level: routine.level,
+        description: routine.description, video_url: routine.video_url, items: routine.items,
+      };
+      if (file) {
+        if (file.size > DEMO_MAX_MEDIA) throw new Error('W trybie demo plik może mieć maks. 3 MB.');
+        Object.assign(fields, { media_url: await readAsDataUrl(file), media_type: file.type.startsWith('video/') ? 'video' : 'image' });
+      } else if (removeMedia) {
+        Object.assign(fields, { media_url: null, media_type: null });
+      }
+      let saved = routine.id && db.routines.find((r) => r.id === routine.id);
+      if (saved) {
+        Object.assign(saved, fields, { updated_at: now() });
+      } else {
+        saved = { media_url: null, media_type: null, ...fields, id: uid(), coach_id: db.session, created_at: now(), updated_at: now() };
+        db.routines.push(saved);
+      }
+      save();
+      return saved.id;
+    },
+
+    async deleteRoutine(id) {
+      db.routines = db.routines.filter((r) => r.id !== id);
+      db.routine_completions = db.routine_completions.filter((c) => c.routine_id !== id);
+      save();
+    },
+
+    async listCompletions({ clientId, routineId }) {
+      const me = db.profiles.find((p) => p.id === db.session);
+      const visible = (c) => c.client_id === db.session
+        || db.profiles.some((p) => p.id === c.client_id && p.coach_id === me?.id);
+      return db.routine_completions
+        .filter((c) => visible(c) && (!clientId || c.client_id === clientId) && (!routineId || c.routine_id === routineId))
+        .sort((a, b) => b.completed_on.localeCompare(a.completed_on));
+    },
+
+    async addCompletion(routineId, clientId, completedOn) {
+      db.routine_completions.push({ id: uid(), routine_id: routineId, client_id: clientId, completed_on: completedOn, created_at: now() });
+      save();
+    },
+
+    async deleteCompletion(id) {
+      db.routine_completions = db.routine_completions.filter((c) => c.id !== id);
+      save();
+    },
+
     async listMetrics(clientId) {
       return db.body_metrics.filter((m) => m.client_id === clientId).sort(byDate('measured_on'));
     },
@@ -273,6 +330,8 @@ function load() {
       const data = JSON.parse(stored);
       data.exercises ??= baseExercises();
       data.workouts ??= [];
+      data.routines ??= [];
+      data.routine_completions ??= [];
       data.workout_sets ??= [];
       return data;
     }
@@ -412,6 +471,27 @@ function seed() {
     });
   });
 
+  // Przykładowe rutyny „na wolną chwilę”.
+  const libItem = (name, amount) => ({ name, exercise_id: libId(name), amount });
+  const hips = {
+    id: uid(), coach_id: coach.id, title: 'Hip mobility', category: 'Mobilność', duration_min: 12, level: 'Łatwy',
+    description: 'Rozruszanie bioder po dniu siedzenia. Rób 2–3 razy w tygodniu, najlepiej wieczorem. Ruch płynny, bez bólu.',
+    video_url: '', media_url: null, media_type: null,
+    items: [libItem('Most biodrowy', '15 powt.'), libItem('Przysiad goblet', '10 powt. z pauzą'), libItem('Dead bug', '10 / strona'), { name: '90/90 – rotacje bioder', exercise_id: null, amount: '45 s / strona' }],
+    created_at: '2026-10-01T10:00:00Z', updated_at: now(),
+  };
+  const shoulders = {
+    id: uid(), coach_id: coach.id, title: 'Rounded shoulders – reset postawy', category: 'Postawa', duration_min: 10, level: 'Łatwy',
+    description: 'Dla osób pracujących przy komputerze. Otwiera klatkę piersiową i aktywuje mięśnie łopatek.',
+    video_url: '', media_url: null, media_type: null,
+    items: [libItem('Face pull', '15 powt. z gumą'), { name: 'Rozciąganie klatki w drzwiach', exercise_id: null, amount: '30 s × 2' }, libItem('Plank', '30 s')],
+    created_at: '2026-10-05T10:00:00Z', updated_at: now(),
+  };
+  const routines = [hips, shoulders];
+  const routine_completions = [
+    { id: uid(), routine_id: hips.id, client_id: anna.id, completed_on: daysAgo(2), created_at: now() },
+  ];
+
   return {
     session: null,
     profiles: [coach, anna, piotr],
@@ -419,6 +499,8 @@ function seed() {
     exercises: exercises_lib,
     workouts,
     workout_sets,
+    routines,
+    routine_completions,
     plan_exercises: exercises,
     body_metrics,
     lift_records,

@@ -76,7 +76,7 @@ const inRange = (date, from, to) => date >= from && date < to;
 // Obliczenia
 // ============================================================
 
-export function computeSummary({ workouts, workoutSets, strength, today = todayIso() }) {
+export function computeSummary({ workouts, workoutSets, strength, completions = [], today = todayIso() }) {
   const thisWeek = weekStart(today);
   const nextWeek = addDays(thisWeek, 7);
   const lastWeek = addDays(thisWeek, -7);
@@ -88,9 +88,13 @@ export function computeSummary({ workouts, workoutSets, strength, today = todayI
     .reduce((sum, s) => sum + (Number(s.weight) || 0) * (Number(s.reps) || 0), 0);
   const count = (from, to) => workouts.filter((w) => inRange(w.performed_on, from, to)).length;
 
-  // Seria: ile kolejnych tygodni (do bieżącego) miało przynajmniej jeden trening.
+  // Seria: ile kolejnych tygodni (do bieżącego) miało przynajmniej jeden trening albo rutynę.
   // Bieżący tydzień bez treningu jeszcze nie przerywa serii.
-  const weeksWithWorkout = new Set(workouts.map((w) => weekStart(w.performed_on)));
+  const weeksWithWorkout = new Set([
+    ...workouts.map((w) => weekStart(w.performed_on)),
+    ...completions.map((c) => weekStart(c.completed_on)),
+  ]);
+  const routines = (from, to) => completions.filter((c) => inRange(c.completed_on, from, to)).length;
   let streak = 0;
   let cursor = weeksWithWorkout.has(thisWeek) ? thisWeek : lastWeek;
   while (weeksWithWorkout.has(cursor)) {
@@ -119,12 +123,12 @@ export function computeSummary({ workouts, workoutSets, strength, today = todayI
   const progress = exerciseProgress(strength).find((r) => r.sessions > 1 && r.kg > 0) ?? null;
 
   return {
-    week: { tonnage: tonnage(thisWeek, nextWeek), previous: tonnage(lastWeek, thisWeek), workouts: count(thisWeek, nextWeek) },
-    month: { tonnage: tonnage(thisMonth, addDays(today, 1)), previous: tonnage(lastMonth, thisMonth), workouts: count(thisMonth, addDays(today, 1)) },
+    week: { tonnage: tonnage(thisWeek, nextWeek), previous: tonnage(lastWeek, thisWeek), workouts: count(thisWeek, nextWeek), routines: routines(thisWeek, nextWeek) },
+    month: { tonnage: tonnage(thisMonth, addDays(today, 1)), previous: tonnage(lastMonth, thisMonth), workouts: count(thisMonth, addDays(today, 1)), routines: routines(thisMonth, addDays(today, 1)) },
     streak,
     records,
     progress,
-    totalWorkouts: workouts.length,
+    totalWorkouts: workouts.length + completions.length,
   };
 }
 
@@ -206,11 +210,12 @@ export function summarySection(summary, { today = todayIso() } = {}) {
         <span class="stat-title">Treningi</span>
         <span class="stat-pair"><b>${week.workouts}</b> w tym tygodniu</span>
         <span class="stat-pair"><b>${month.workouts}</b> w tym miesiącu</span>
+        ${month.routines ? html`<span class="stat-pair"><b>${month.routines}</b> ${plural(month.routines, 'rutyna', 'rutyny', 'rutyn')} w tym miesiącu</span>` : ''}
       </section>
       <section class="card stat-card">
         <span class="stat-title">🔥 Seria</span>
         <span class="stat-big">${streak} ${plural(streak, 'tydzień', 'tygodnie', 'tygodni')}</span>
-        <span class="stat-sub">z rzędu z co najmniej 1 treningiem</span>
+        <span class="stat-sub">z rzędu z co najmniej 1 treningiem lub rutyną</span>
       </section>
     </div>`;
 }
