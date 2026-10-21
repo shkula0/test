@@ -25,8 +25,12 @@ export function youTubeId(value) {
 }
 
 // Mała miniatura do list.
-export function exerciseThumb(exercise) {
+// animate: krótki klip z ćwiczeniem gra w miniaturze w pętli, bez dźwięku (jak GIF).
+export function exerciseThumb(exercise, { animate = false } = {}) {
   const yt = youTubeId(exercise?.video_url);
+  if (animate && exercise?.media_type === 'video') {
+    return html`<span class="thumb"><video src="${exercise.media_url}" autoplay muted loop playsinline preload="auto" aria-hidden="true"></video></span>`;
+  }
   if (exercise?.media_type === 'image') {
     return html`<img class="thumb" src="${exercise.media_url}" alt="" loading="lazy">`;
   }

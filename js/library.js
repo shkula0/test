@@ -2,7 +2,7 @@
 
 import { api } from './data/index.js';
 import { icons } from './icons.js';
-import { exerciseMedia, exerciseThumb, isHttpUrl } from './media.js';
+import { exerciseMedia, exerciseThumb, hasMedia, isHttpUrl } from './media.js';
 import { $, html, toast, formData } from './ui.js';
 
 export const CATEGORIES = [
@@ -126,16 +126,17 @@ export async function viewExercise(ctx, id, params) {
   });
 }
 
-export async function viewExerciseEditor(ctx, id) {
+export async function viewExerciseEditor(ctx, id, params = new URLSearchParams()) {
   const { me } = ctx;
   const existing = id ? await api.getExercise(id) : null;
   if (id && (!existing || existing.coach_id !== me.id)) return ctx.viewNotFound();
-  const ex = existing ?? { name: '', category: '', description: '', video_url: '', is_public: false };
+  const ex = existing ?? { name: params.get('name') ?? '', category: '', description: '', video_url: '', is_public: false };
+  const returnTo = backFrom(params, null);
   let removeMedia = false;
 
   ctx.renderShell({
     title: existing ? 'Edytuj ćwiczenie' : 'Nowe ćwiczenie',
-    back: existing ? `/exercise/${existing.id}` : '/exercises',
+    back: returnTo ?? (existing ? `/exercise/${existing.id}` : '/exercises'),
     nav: 'library',
     body: html`
       <form id="exercise-form" class="stack">
@@ -220,7 +221,7 @@ export async function viewExerciseEditor(ctx, id) {
         is_public: data.is_public === 'on',
       }, { file, removeMedia: removeMedia && !file });
       toast('Ćwiczenie zapisane', 'success');
-      ctx.go(`/exercise/${savedId}`);
+      ctx.go(returnTo ?? `/exercise/${savedId}`);
     });
     button.textContent = 'Zapisz ćwiczenie';
   });
@@ -233,6 +234,35 @@ function mediaPreview(media) {
       : html`<img src="${media.media_url}" alt="Podgląd">`}
     <button type="button" class="btn btn-ghost danger" id="remove-media">${icons.trash} Usuń plik</button>
   </div>`;
+}
+
+// Ćwiczenie do pokazania w planie/rutynie: jeśli trener ma własną wersję o tej samej nazwie
+// ze zdjęciem lub filmem (np. kopię ćwiczenia bazowego), pokazujemy ją zamiast bazowej.
+export function resolveExercise(library, { id, name }) {
+  const byId = id ? library.find((e) => e.id === id) : null;
+  const key = normalize(byId?.name ?? name);
+  if (!key) return byId;
+  const sameName = library.filter((e) => normalize(e.name) === key);
+  const withMedia = sameName.filter(hasMedia);
+  return (byId && hasMedia(byId) ? byId : null)
+    ?? withMedia.find((e) => e.coach_id != null) ?? withMedia[0] ?? byId ?? sameName[0] ?? null;
+}
+
+// „+ film” z rutyny lub planu: własne ćwiczenie → edycja, bazowe/cudze → kopia do edycji,
+// ćwiczenie spoza biblioteki → nowe z wpisaną nazwą. Po zapisie wracamy tam, skąd przyszliśmy.
+export async function openExerciseForMedia(ctx, params) {
+  const back = params.get('back');
+  const backQuery = back && back.startsWith('/') ? `back=${encodeURIComponent(back)}` : '';
+  const library = await api.listExercises();
+  const target = resolveExercise(library, { id: params.get('id'), name: params.get('name') ?? '' });
+  if (target?.coach_id === ctx.me.id) return ctx.go(`/exercise/${target.id}/edit?${backQuery}`);
+  if (target) {
+    const copyId = await api.saveExercise({
+      name: target.name, category: target.category, description: target.description, video_url: target.video_url, is_public: false,
+    });
+    return ctx.go(`/exercise/${copyId}/edit?${backQuery}`);
+  }
+  return ctx.go(`/exercise/new?name=${encodeURIComponent(params.get('name') ?? '')}&${backQuery}`);
 }
 
 export function normalize(text) {

@@ -705,3 +705,17 @@ fieldset { margin: 0; min-width: 0; }
 .routine-items li + li { border-top: 1px solid var(--border); }
 .routine-item-edit { display: grid; grid-template-columns: auto 1.4fr 1fr auto; gap: 6px; align-items: center; }
 .tabbar a span { font-size: 0.72rem; }
+.thumb-add {
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 0;
+  border: 1.5px dashed var(--accent);
+  background: var(--surface);
+  color: var(--accent);
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-decoration: none;
+}
+.thumb-add .icon { width: 18px; height: 18px; }
+.routine-items .thumb, .exercises .thumb { width: 64px; height: 64px; border-radius: 12px; }

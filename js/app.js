@@ -1,7 +1,7 @@
 import { api } from './data/index.js';
 import { lineChart } from './chart.js';
 import { icons } from './icons.js';
-import { viewLibrary, viewExercise, viewExerciseEditor, normalize } from './library.js';
+import { viewLibrary, viewExercise, viewExerciseEditor, normalize, openExerciseForMedia, resolveExercise } from './library.js';
 import { exerciseThumb, hasMedia } from './media.js';
 import { bodySection, describeMetricRow, metricSourceLabel, readMetricForm } from './measurements.js';
 import {
@@ -83,8 +83,9 @@ async function router() {
     if (section === 'progress' && !isCoach) return viewMyProgress();
     const ctx = { me, renderShell, emptyState, submitting, go, viewNotFound };
     if (section === 'exercises' && isCoach) return viewLibrary(ctx, params);
-    if (section === 'exercise' && id === 'new' && isCoach) return viewExerciseEditor(ctx, null);
-    if (section === 'exercise' && id && action === 'edit' && isCoach) return viewExerciseEditor(ctx, id);
+    if (section === 'exercise' && id === 'new' && isCoach) return viewExerciseEditor(ctx, null, params);
+    if (section === 'exercise' && id === 'media' && isCoach) return openExerciseForMedia(ctx, params);
+    if (section === 'exercise' && id && action === 'edit' && isCoach) return viewExerciseEditor(ctx, id, params);
     if (section === 'exercise' && id) return viewExercise(ctx, id, params);
     if (section === 'routines') return viewRoutines(ctx);
     if (section === 'routine' && id === 'new' && isCoach) return viewRoutineEditor(ctx, null);
@@ -807,7 +808,6 @@ async function viewPlan(planId) {
   if (!data) return viewNotFound();
   const { plan, exercises } = data;
   const isCoach = me.role === 'coach';
-  const libraryById = new Map(library.map((e) => [e.id, e]));
 
   // Dni → grupy (pojedyncze ćwiczenie albo superseria) → ćwiczenia z oznaczeniem.
   const labels = planLabels(exercises);
@@ -821,14 +821,14 @@ async function viewPlan(planId) {
   });
 
   const exerciseItem = ({ ex, label }) => {
-    const info = libraryById.get(ex.exercise_id);
+    const info = resolveExercise(library, { id: ex.exercise_id, name: ex.name });
     const body = html`
       <strong>${ex.name}</strong>
       ${details(ex) ? html`<span class="ex-details">${details(ex)}</span>` : ''}
       ${setLines(ex)}
       ${ex.notes ? html`<span class="muted small">${ex.notes}</span>` : ''}
       ${info && (hasMedia(info) || info.description) ? html`<span class="ex-link">${icons.play} ${hasMedia(info) ? 'Zobacz, jak wykonać' : 'Opis techniki'}</span>` : ''}`;
-    const content = html`<span class="ex-label">${label}</span><span class="ex-text">${body}</span>${info ? exerciseThumb(info) : ''}`;
+    const content = html`<span class="ex-label">${label}</span><span class="ex-text">${body}</span>${info ? exerciseThumb(info, { animate: true }) : ''}`;
     return info
       ? html`<li><a class="ex-row" href="#/exercise/${info.id}?back=/plan/${plan.id}">${content}</a></li>`
       : html`<li><span class="ex-row">${content}</span></li>`;

@@ -3,7 +3,7 @@
 
 import { api } from './data/index.js';
 import { icons } from './icons.js';
-import { normalize } from './library.js';
+import { normalize, resolveExercise } from './library.js';
 import { exerciseThumb } from './media.js';
 import { isTimeBased, planLabels, planTargets, targetText } from './plan-utils.js';
 import { $, html, toast, todayIso, formatDate, formatNumber, toNumber } from './ui.js';
@@ -83,7 +83,6 @@ export async function viewWorkoutEditor(ctx, { workoutId, planId, day }) {
     notes: '',
   };
   const [library, allSets] = await Promise.all([api.listExercises(), api.listWorkoutSets(workout.client_id)]);
-  const libraryById = new Map(library.map((e) => [e.id, e]));
   const previous = previousByExercise(allSets, { planId: workout.plan_id, day: workout.day, excludeId: existing?.workout.id });
 
   // Ćwiczenia z planu (dla danego dnia) – do celów i do nowego treningu.
@@ -177,7 +176,7 @@ export async function viewWorkoutEditor(ctx, { workoutId, planId, day }) {
   const container = $('#wk-items');
   const draw = () => {
     container.innerHTML = items.length ? html`${items.map((item, i) => {
-      const info = libraryById.get(item.exercise_id);
+      const info = resolveExercise(library, { id: item.exercise_id, name: item.name });
       const plan = planByName.get(normalize(item.name));
       const prev = previous.get(normalize(item.name));
       const next = items[i + 1];
@@ -193,7 +192,7 @@ export async function viewWorkoutEditor(ctx, { workoutId, planId, day }) {
               ${plan?.notes ? html`<br><span class="muted small">${plan.notes}</span>` : ''}
               ${prev ? html`<br><span class="muted small">Poprzednio: ${formatDate(prev.date)}</span>` : ''}
             </div>
-            ${info ? html`<a href="#/exercise/${info.id}" target="_blank" class="wk-thumb" aria-label="Jak wykonać">${exerciseThumb(info)}</a>` : ''}
+            ${info ? html`<a href="#/exercise/${info.id}" target="_blank" class="wk-thumb" aria-label="Jak wykonać">${exerciseThumb(info, { animate: true })}</a>` : ''}
           </div>
           <table class="sets">
             <thead><tr><th>Seria</th><th>Plan</th><th>kg</th><th>${item.timeMode ? 'Czas (s)' : 'Powt.'}</th></tr></thead>

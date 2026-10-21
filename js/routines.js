@@ -3,8 +3,8 @@
 
 import { api } from './data/index.js';
 import { icons } from './icons.js';
-import { normalize } from './library.js';
-import { exerciseMedia, exerciseThumb, isHttpUrl } from './media.js';
+import { normalize, resolveExercise } from './library.js';
+import { exerciseMedia, exerciseThumb, hasMedia, isHttpUrl } from './media.js';
 import { $, html, toast, formatDate, formData, todayIso } from './ui.js';
 
 export const ROUTINE_CATEGORIES = ['Mobilność', 'Postawa', 'Rozciąganie', 'Kondycja', 'Core', 'Regeneracja', 'Inne'];
@@ -83,8 +83,6 @@ export async function viewRoutine(ctx, id) {
     api.listCompletions(isCoach ? { routineId: id } : { clientId: me.id, routineId: id }),
     isCoach ? api.listClients() : [],
   ]);
-  const libraryById = new Map(library.map((e) => [e.id, e]));
-  const libraryByName = new Map(library.map((e) => [normalize(e.name), e]));
   const today = todayIso();
   const doneToday = completions.find((c) => c.client_id === me.id && c.completed_on === today);
 
@@ -112,13 +110,19 @@ export async function viewRoutine(ctx, id) {
       ${routine.items.length ? html`<section class="card">
         <h2>Ćwiczenia po kolei</h2>
         <ol class="routine-items">${routine.items.map((item, i) => {
-          const info = libraryById.get(item.exercise_id) ?? libraryByName.get(normalize(item.name));
-          const content = html`<span class="ex-label">${i + 1}</span>
-            <span class="ex-text"><strong>${item.name}</strong>${item.amount ? html`<span class="ex-details">${item.amount}</span>` : ''}</span>
-            ${info ? exerciseThumb(info) : ''}`;
+          const info = resolveExercise(library, { id: item.exercise_id, name: item.name });
+          const text = html`<span class="ex-label">${i + 1}</span>
+            <span class="ex-text"><strong>${item.name}</strong>${item.amount ? html`<span class="ex-details">${item.amount}</span>` : ''}</span>`;
+          // Trener: przy ćwiczeniu bez zdjęcia/filmu kwadrat „+ film” prowadzi do dodania klipu.
+          if (own && !hasMedia(info)) {
+            const query = new URLSearchParams({ name: item.name, back: `/routine/${routine.id}`, ...(info ? { id: info.id } : {}) });
+            return html`<li><span class="ex-row">${text}
+              <a class="thumb thumb-add" href="#/exercise/media?${query.toString()}" aria-label="Dodaj film do ćwiczenia ${item.name}">${icons.plus}<span>film</span></a>
+            </span></li>`;
+          }
           return info
-            ? html`<li><a class="ex-row" href="#/exercise/${info.id}?back=/routine/${routine.id}">${content}</a></li>`
-            : html`<li><span class="ex-row">${content}</span></li>`;
+            ? html`<li><a class="ex-row" href="#/exercise/${info.id}?back=/routine/${routine.id}">${text}${exerciseThumb(info, { animate: true })}</a></li>`
+            : html`<li><span class="ex-row">${text}</span></li>`;
         })}</ol>
       </section>` : ''}
 
