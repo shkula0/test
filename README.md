@@ -2,10 +2,10 @@
 
 Aplikacja na telefon (PWA) dla trenera personalnego i jego podopiecznych.
 
-- **Trener** układa plany treningowe (dni, ćwiczenia, superserie A1/A2/A3, każda seria osobno: powtórzenia, ciężar, czas, intensywność; przerwy, wskazówki) i widzi postępy każdego podopiecznego.
+- **Trener** układa plany treningowe (dni, ćwiczenia, superserie A1/A2/A3, każda seria osobno: zakres powtórzeń lub czas i intensywność 50–100%; przerwy, wskazówki – ciężar wynika z progresu) i widzi postępy każdego podopiecznego.
 - **Podopieczny** widzi swoje plany i zapisuje pomiary ciała – samodzielne (waga, wzrost, obwody; BMI liczone automatycznie) i z wagi do analizy składu ciała (PBF, BFM, SMM, tłuszcz trzewny, TBW) – oraz wyniki w ćwiczeniach. Na tej podstawie powstają wykresy, m.in. szacowanego ciężaru maksymalnego (1RM).
 - **Biblioteka ćwiczeń**: bazowy zestaw ponad 40 ćwiczeń, a do tego własne ćwiczenia trenera ze zdjęciem lub filmem (plik z telefonu albo link do YouTube) i opisem techniki. Ćwiczenie można udostępnić innym trenerom. Podopieczny klika ćwiczenie w planie i widzi, jak je wykonać.
-- **Dziennik treningów**: trening startuje z wybranego dnia planu ze wszystkimi ćwiczeniami; w polach na szaro widać wynik z poprzedniego treningu z tego planu (albo wartości z planu), a stuknięcie numeru serii odhacza ją i zatwierdza szare wartości. Treningi zapisuje trener albo podopieczny, a serie trafiają do wykresów siły.
+- **Dziennik treningów**: trening startuje z wybranego dnia planu ze wszystkimi ćwiczeniami; w polach na szaro widać wynik z poprzedniego treningu z tego planu (przy pierwszym treningu pola są puste), a stuknięcie numeru serii odhacza ją i zatwierdza szare wartości. Treningi zapisuje trener albo podopieczny, a serie trafiają do wykresów siły.
 - **Podsumowanie** na start: największy progres, tonaż tygodnia i miesiąca z porównaniem do poprzedniego okresu, liczba treningów, rekordy z 30 dni i seria tygodni z treningiem.
 - **Pobieranie wyników**: w zakładce Postępy raport PDF (podsumowanie, progres, pomiary, historia treningów) i plik Excel ze wszystkimi danymi.
 - Podopieczni dołączają do trenera przez **link z kodem zaproszenia**.

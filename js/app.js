@@ -7,7 +7,7 @@ import { bodySection, describeMetricRow, metricSourceLabel, readMetricForm } fro
 import {
   blankTarget, cleanTargets, letterFor, planLabels, planTargets, targetText, targetsSummary,
 } from './plan-utils.js';
-import { previousByExercise, viewWorkout, viewWorkoutEditor, workoutList } from './workouts.js';
+import { formatSet, previousByExercise, viewWorkout, viewWorkoutEditor, workoutList } from './workouts.js';
 import { computeSummary, exerciseProgress, strengthEntries, summarySection } from './summary.js';
 import { exportExcel, exportPdf } from './export.js';
 import {
@@ -448,6 +448,12 @@ function planList(plans) {
     </a></li>`)}</ul>`;
 }
 
+// Intensywność wybierana z listy 50–100% co 10%; inna, wcześniej wpisana wartość zostaje na liście.
+const EFFORTS = ['', '50%', '60%', '70%', '80%', '90%', '100%'];
+function effortOptions(current) {
+  return current && !EFFORTS.includes(current) ? [...EFFORTS, current] : EFFORTS;
+}
+
 async function viewPlanEditor(planId, newClientId) {
   const existing = planId ? await api.getPlan(planId) : null;
   if (planId && !existing) return viewNotFound();
@@ -549,19 +555,18 @@ async function viewPlanEditor(planId, newClientId) {
           <div class="combo-list" role="listbox" hidden></div>
           <p class="combo-hint small">${linkHint(r)}</p>
         </div>
-        ${last ? html`<p class="muted small last-hint"><span class="ghost-sample">Szare</span> = ostatni trening (${formatDate(last.date)})</p>` : ''}
-        <table class="sets plan-sets ${r.useTime ? 'with-time' : ''}">
-          <thead><tr><th>Seria</th><th>${r.useTime ? 'Czas (s)' : 'Powt.'}</th><th>kg</th><th>Intens.</th></tr></thead>
+        <table class="sets plan-sets">
+          <thead><tr><th>Seria</th><th>${r.useTime ? 'Czas (s)' : 'Powt.'}</th><th>Intens.</th>
+            <th>Ostatnio${last ? html`<br><span class="muted">${formatDate(last.date).slice(0, 5)}</span>` : ''}</th></tr></thead>
           <tbody>${r.targets.map((t, ti) => html`<tr data-target="${ti}">
             <td><span class="set-no">${ti + 1}</span></td>
             ${r.useTime
-              ? html`<td><input data-t="time" value="${t.time}" inputmode="numeric" autocomplete="off" aria-label="Czas seria ${ti + 1}"
-                  placeholder="${last?.sets[ti]?.duration_s ?? ''}"></td>`
-              : html`<td><input data-t="reps" value="${t.reps}" autocomplete="off" aria-label="Powtórzenia seria ${ti + 1}"
-                  placeholder="${last?.sets[ti]?.reps ?? ''}"></td>`}
-            <td><input data-t="weight" value="${t.weight}" inputmode="decimal" autocomplete="off" aria-label="Ciężar seria ${ti + 1}"
-              placeholder="${Number(last?.sets[ti]?.weight) > 0 ? formatNumber(last.sets[ti].weight, 2) : ''}"></td>
-            <td><input data-t="effort" value="${t.effort}" autocomplete="off" aria-label="Intensywność seria ${ti + 1}"></td>
+              ? html`<td><input data-t="time" value="${t.time}" inputmode="numeric" autocomplete="off" aria-label="Czas seria ${ti + 1}"></td>`
+              : html`<td><input data-t="reps" value="${t.reps}" autocomplete="off" placeholder="np. 8–10" aria-label="Zakres powtórzeń seria ${ti + 1}"></td>`}
+            <td><select data-t="effort" aria-label="Intensywność seria ${ti + 1}">
+              ${effortOptions(t.effort).map((v) => html`<option value="${v}" ${v === t.effort ? 'selected' : ''}>${v || '–'}</option>`)}
+            </select></td>
+            <td class="set-target">${last?.sets[ti] ? formatSet(last.sets[ti]) : '–'}</td>
           </tr>`)}</tbody>
         </table>
         <div class="wk-actions">
@@ -569,7 +574,7 @@ async function viewPlanEditor(planId, newClientId) {
           <button type="button" class="chip" data-remove-target ${r.targets.length <= 1 ? 'disabled' : ''}>− Seria</button>
           <label class="chip chip-check ${r.useTime ? 'active' : ''}"><input type="checkbox" data-use-time ${r.useTime ? 'checked' : ''}> Na czas (s)</label>
         </div>
-        <p class="muted small plan-sets-hint">Intens. = np. 60% albo RPE 8. Puste pola zostaw – podopieczny ich nie zobaczy.</p>
+        <p class="muted small plan-sets-hint">Ciężar wynika z progresu – podopieczny zobaczy w treningu swój ostatni wynik.</p>
         <div class="grid-2">
           <label>Przerwa<input data-field="rest" value="${r.rest}" autocomplete="off" placeholder="np. 90 s"></label>
           <label>Wskazówki<input data-field="notes" value="${r.notes}" placeholder="np. tempo, technika" autocomplete="off"></label>
@@ -760,7 +765,8 @@ async function viewPlanEditor(planId, newClientId) {
     const filled = rows
       .map((r) => {
         // Ćwiczenie „Na czas” ma tylko czas, pozostałe tylko powtórzenia.
-        const targets = cleanTargets(r.targets).map((t) => (r.useTime ? { ...t, reps: '' } : { ...t, time: '' }));
+        // Plan nie zawiera ciężaru (wynika z progresu podopiecznego).
+        const targets = cleanTargets(r.targets).map((t) => ({ ...t, weight: '', ...(r.useTime ? { reps: '' } : { time: '' }) }));
         // Starsze pola (serie / powtórzenia / ciężar) jako skrót – dla zgodności wstecz.
         const joined = (f) => {
           const values = [...new Set(targets.map((t) => t[f]))];

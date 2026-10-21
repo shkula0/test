@@ -73,24 +73,19 @@ export function isTimeBased(targets) {
   return targets.some((t) => t.time.trim()) && !targets.some((t) => t.reps.trim());
 }
 
-const withKg = (weight) => (/^[\d.,]+$/.test(weight) ? `${weight} kg` : weight);
-
-// „10 × 80 kg · 45 s · 60%”
+// „8–10 powt. · 70%” albo „45 s · 60%” – plan nie zawiera ciężaru (wynika z progresu).
 export function targetText(t) {
   const reps = t.reps.trim();
-  const weight = planWeight(t.weight);
-  const main = reps && weight ? `${reps} × ${withKg(weight)}` : reps ? `${reps} powt.` : weight ? withKg(weight) : '';
-  return [main, t.time.trim() && `${t.time.trim()} s`, t.effort.trim()].filter(Boolean).join(' · ');
+  return [reps && `${reps} powt.`, t.time.trim() && `${t.time.trim()} s`, t.effort.trim()].filter(Boolean).join(' · ');
 }
 
-// Jeśli wszystkie serie są takie same: „3 × 10 · 80 kg · 60%”, inaczej null.
+// Jeśli wszystkie serie są takie same: „3 × 8–10 · 70%”, inaczej null.
 export function targetsSummary(targets) {
-  const key = (t) => TARGET_FIELDS.map((f) => t[f].trim()).join('|');
+  const key = (t) => [t.reps, t.time, t.effort].map((v) => v.trim()).join('|');
   if (!targets.length || targets.some((t) => key(t) !== key(targets[0]))) return null;
   const t = targets[0];
   const parts = [
     t.reps.trim() ? `${targets.length} × ${t.reps.trim()}` : `${targets.length} ${targets.length === 1 ? 'seria' : targets.length < 5 ? 'serie' : 'serii'}`,
-    withKg(planWeight(t.weight)),
     t.time.trim() && `${t.time.trim()} s`,
     t.effort.trim(),
   ];

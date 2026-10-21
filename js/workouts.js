@@ -21,12 +21,6 @@ function plural(n, one, few, many) {
   return last >= 2 && last <= 4 && (lastTwo < 12 || lastTwo > 14) ? few : many;
 }
 
-// Liczba z pola planu, jeśli to zwykła liczba („60” → 60, „8–10” → null).
-function plainNumber(text) {
-  const value = String(text ?? '').trim();
-  return /^\d+([.,]\d+)?$/.test(value) ? Number(value.replace(',', '.')) : null;
-}
-
 export function formatSet(set) {
   const weight = set.weight != null && Number(set.weight) > 0 ? `${formatNumber(set.weight, 2)} kg` : '';
   const amount = set.duration_s != null ? `${set.duration_s} s` : set.reps != null ? `${set.reps}` : '';
@@ -148,16 +142,14 @@ export async function viewWorkoutEditor(ctx, { workoutId, planId, day }) {
         || item.sets.some((x) => x.time !== '' && x.reps === '');
   });
 
-  // Szare podpowiedzi w polach: wynik z poprzedniego treningu, a jeśli go nie ma – wartości z planu.
+  // Szare podpowiedzi w polach: wyłącznie wynik z poprzedniego treningu (przy pierwszym treningu – puste).
   const ghostOf = (item, n) => {
     const prev = previous.get(normalize(item.name));
     const before = prev?.sets[n] ?? prev?.sets.at(-1);
-    const target = item.targets[n] ?? item.targets.at(-1);
-    const pick = (fromPrev, fromPlan) => (fromPrev != null ? fromPrev : fromPlan);
     return {
-      weight: pick(before && Number(before.weight) > 0 ? Number(before.weight) : null, plainNumber(target?.weight)),
-      reps: pick(before?.reps ?? null, plainNumber(target?.reps)),
-      time: pick(before?.duration_s ?? null, plainNumber(target?.time)),
+      weight: before && Number(before.weight) > 0 ? Number(before.weight) : null,
+      reps: before?.reps ?? null,
+      time: before?.duration_s ?? null,
     };
   };
 
@@ -170,7 +162,7 @@ export async function viewWorkoutEditor(ctx, { workoutId, planId, day }) {
       <section class="card wk-top">
         <div class="grow">
           <strong>${workout.plan_name}</strong>${workout.day ? html` · ${workout.day}` : ''}
-          <p class="muted small"><span class="ghost-sample">Szare liczby</span> to wynik z poprzedniego treningu (albo z planu, jeśli to pierwszy raz).
+          <p class="muted small"><span class="ghost-sample">Szare liczby</span> to wynik z poprzedniego treningu (przy pierwszym treningu pola są puste).
             Bez zmian? Stuknij numer serii, żeby ją odhaczyć. Progres? Najpierw wpisz nowy wynik.</p>
         </div>
         <label class="wk-date">Data<input type="date" id="wk-date" value="${workout.performed_on}" required></label>
