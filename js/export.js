@@ -6,6 +6,7 @@ import { METRICS, metricSeries } from './measurements.js';
 import { computeSummary, exerciseProgress, strengthEntries } from './summary.js';
 import { formatDate, formatNumber, todayIso } from './ui.js';
 import { formatSet } from './workouts.js';
+import { blockTitle } from './plan-utils.js';
 
 const scripts = new Map();
 
@@ -125,12 +126,13 @@ export async function exportExcel(clientId) {
   ], [34, 11, 12, 13, 12, 12, 11, 14]), 'Progres');
 
   XLSX.utils.book_append_sheet(wb, sheet([
-    ['Data', 'Plan', 'Dzień', 'Oznaczenie', 'Ćwiczenie', 'Seria', 'Ciężar (kg)', 'Powtórzenia', 'Czas (s)', 'Zrobiona', 'Notatka'],
+    ['Data', 'Plan', 'Dzień / trening', 'Oznaczenie', 'Ćwiczenie', 'Seria', 'Ciężar (kg)', 'Powtórzenia', 'Czas (s)', 'Zrobiona', 'Blok', 'Wynik bloku', 'Notatka'],
     ...data.sets.map((s) => [
-      date(s.performed_on), s.workout.plan_name, s.workout.day, s.label, s.exercise_name, s.set_number,
-      num(s.weight), num(s.reps), num(s.duration_s), s.done ? 'tak' : 'nie', s.note,
+      date(s.performed_on), s.workout.plan_name || 'bez planu', s.workout.day, s.label, s.exercise_name, s.set_number,
+      num(s.weight), num(s.reps), num(s.duration_s), s.done ? 'tak' : 'nie',
+      s.block?.type ? blockTitle(s.block).split(' – ')[0] : '', s.block_result ?? '', s.note,
     ]),
-  ], [12, 24, 14, 11, 32, 7, 12, 12, 10, 10, 30]), 'Treningi');
+  ], [12, 24, 18, 11, 32, 7, 12, 12, 10, 10, 18, 14, 30]), 'Treningi');
 
   const metricColumns = METRICS.filter((m) => !m.computed);
   const bmiByDate = new Map(metricSeries(data.metrics, 'bmi').map((p) => [p.date, p.value]));
@@ -274,7 +276,8 @@ export async function exportPdf(clientId) {
         formatDate(s.performed_on),
         [s.workout.day, s.workout.plan_name].filter(Boolean).join(' · '),
         `${s.label ? `${s.label}. ` : ''}${s.exercise_name}`,
-        sets.map((x) => formatSet(x)).join(', ') || '–',
+        [sets.map((x) => formatSet(x)).join(', '), s.block?.type ? `${blockTitle(s.block).split(' – ')[0]}, wynik: ${s.block_result || '–'}` : '']
+          .filter(Boolean).join(' · ') || '–',
       ]),
       columnStyles: { 0: { cellWidth: 22 }, 1: { cellWidth: 38 }, 2: { cellWidth: 48 } },
     });

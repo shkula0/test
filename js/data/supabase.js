@@ -178,7 +178,11 @@ export function createSupabaseBackend({ supabaseUrl, supabaseAnonKey }) {
         : await run(sb.from('workouts').insert(fields).select().single());
       await run(sb.from('workout_sets').delete().eq('workout_id', saved.id));
       if (sets.length) {
-        await run(sb.from('workout_sets').insert(sets.map(({ id, ...set }) => ({ ...set, workout_id: saved.id }))));
+        // Przy zapisie wielu wierszy brakujące kolumny trafiają jako NULL – wyrównujemy pola bloku.
+        const hasBlocks = sets.some((set) => 'block' in set);
+        await run(sb.from('workout_sets').insert(sets.map(({ id, ...set }) => ({
+          ...(hasBlocks ? { block: null, block_result: '' } : {}), ...set, workout_id: saved.id,
+        }))));
       }
       return saved.id;
     },

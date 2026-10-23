@@ -95,3 +95,51 @@ export function targetsSummary(targets) {
 export function cleanTargets(targets) {
   return targets.map((t) => Object.fromEntries(TARGET_FIELDS.map((f) => [f, String(t[f] ?? '').trim()])));
 }
+
+// ============================================================
+// Bloki: EMOM, AMRAP, For Time, Tabata. Format zapisany przy pierwszym ćwiczeniu grupy
+// (kolejne ćwiczenia dołączają tak jak w superserii).
+// ============================================================
+
+export const BLOCK_TYPES = { emom: 'EMOM', amrap: 'AMRAP', fortime: 'For Time', tabata: 'Tabata' };
+
+export function defaultBlock(type) {
+  return {
+    emom: { type, minutes: 10 },
+    amrap: { type, minutes: 12 },
+    fortime: { type, rounds: 3, minutes: '' },
+    tabata: { type, rounds: 8, work: 20, rest: 10 },
+  }[type] ?? null;
+}
+
+const rundy = (n) => (n === 1 ? 'runda' : n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 12 || n % 100 > 14) ? 'rundy' : 'rund');
+
+// Nagłówek bloku, np. „AMRAP 12 min – jak najwięcej rund”.
+export function blockTitle(block) {
+  if (!block?.type) return '';
+  const n = (v, fallback) => Number(v) || fallback;
+  switch (block.type) {
+    case 'emom': return `EMOM ${n(block.minutes, 10)} min – na początku każdej minuty wykonaj zadanie, resztę minuty odpoczywasz`;
+    case 'amrap': return `AMRAP ${n(block.minutes, 12)} min – jak najwięcej rund w tym czasie`;
+    case 'fortime': {
+      const rounds = n(block.rounds, 1);
+      return `For Time – ${rounds} ${rundy(rounds)} jak najszybciej${Number(block.minutes) ? `, limit ${block.minutes} min` : ''}`;
+    }
+    case 'tabata': return `Tabata – ${n(block.rounds, 8)} × ${n(block.work, 20)} s pracy / ${n(block.rest, 10)} s przerwy`;
+    default: return '';
+  }
+}
+
+// Co wpisać jako wynik bloku w treningu.
+export function blockResultLabel(block) {
+  return {
+    emom: 'Ukończone minuty',
+    amrap: 'Wynik: rundy + powt.',
+    fortime: 'Czas (mm:ss)',
+    tabata: 'Wynik (np. suma powt.)',
+  }[block?.type] ?? 'Wynik';
+}
+
+export function blockResultPlaceholder(block) {
+  return { emom: 'np. 10', amrap: 'np. 5 + 7', fortime: 'np. 12:40', tabata: 'np. 96' }[block?.type] ?? '';
+}

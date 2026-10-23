@@ -5,9 +5,9 @@ import { viewLibrary, viewExercise, viewExerciseEditor, normalize, openExerciseF
 import { exerciseThumb, hasMedia } from './media.js';
 import { bodySection, describeMetricRow, metricSourceLabel, readMetricForm } from './measurements.js';
 import {
-  blankTarget, cleanTargets, letterFor, planLabels, planTargets, targetText, targetsSummary,
+  BLOCK_TYPES, blankTarget, blockTitle, cleanTargets, defaultBlock, letterFor, planLabels, planTargets, targetText, targetsSummary,
 } from './plan-utils.js';
-import { formatSet, previousByExercise, viewWorkout, viewWorkoutEditor, workoutList } from './workouts.js';
+import { FREE_WORKOUT, formatSet, previousByExercise, viewWorkout, viewWorkoutEditor, workoutList } from './workouts.js';
 import { computeSummary, exerciseProgress, strengthEntries, summarySection } from './summary.js';
 import { exportExcel, exportPdf } from './export.js';
 import { viewRoutine, viewRoutineEditor, viewRoutines } from './routines.js';
@@ -91,7 +91,9 @@ async function router() {
     if (section === 'routine' && id === 'new' && isCoach) return viewRoutineEditor(ctx, null);
     if (section === 'routine' && id && action === 'edit' && isCoach) return viewRoutineEditor(ctx, id);
     if (section === 'routine' && id) return viewRoutine(ctx, id);
-    if (section === 'workout' && id === 'new') return viewWorkoutEditor(ctx, { planId: params.get('plan'), day: params.get('day') ?? '' });
+    if (section === 'workout' && id === 'new') {
+      return viewWorkoutEditor(ctx, { planId: params.get('plan'), day: params.get('day') ?? '', clientId: isCoach ? params.get('client') : me.id });
+    }
     if (section === 'workout' && id && action === 'edit') return viewWorkoutEditor(ctx, { workoutId: id });
     if (section === 'workout' && id) return viewWorkout(ctx, id);
     if (section === 'account') return viewAccount();
@@ -422,8 +424,10 @@ async function viewClient(clientId, tab) {
   } else if (tab === 'progress') {
     await mountProgress(container, clientId);
   } else if (tab === 'workouts') {
-    container.innerHTML = await workoutsSection(clientId,
-      'Brak zapisanych treningów. Otwórz plan i przy wybranym dniu kliknij „Rozpocznij trening”.');
+    container.innerHTML = html`<a class="btn btn-block" href="#/workout/new?client=${clientId}">${icons.plus} ${FREE_WORKOUT}</a>
+      <p class="muted small">Bez planu – ćwiczenia dodajesz w trakcie. Ciężary zapamiętają się jak w zwykłym treningu.</p>
+      ${raw(String(await workoutsSection(clientId,
+        'Brak zapisanych treningów. Otwórz plan i przy wybranym dniu kliknij „Rozpocznij trening” albo zacznij trening dowolny.')))}`;
   } else {
     const plans = await api.listPlans(clientId);
     container.innerHTML = html`
@@ -456,6 +460,19 @@ function planList(plans) {
     </a></li>`)}</ul>`;
 }
 
+// Parametry bloku w edytorze planu (minuty, rundy, praca/przerwa).
+function blockParams(block) {
+  if (!block) return '';
+  const field = (key, label) => html`<label>${label}<input data-block-param="${key}" value="${block[key] ?? ''}" inputmode="numeric" autocomplete="off"></label>`;
+  switch (block.type) {
+    case 'emom':
+    case 'amrap': return field('minutes', 'Czas (min)');
+    case 'fortime': return html`${field('rounds', 'Rundy')}${field('minutes', 'Limit (min)')}`;
+    case 'tabata': return html`${field('rounds', 'Rundy')}${field('work', 'Praca (s)')}${field('rest', 'Przerwa (s)')}`;
+    default: return '';
+  }
+}
+
 // Intensywność wybierana z listy 50–100% co 10%; inna, wcześniej wpisana wartość zostaje na liście.
 const EFFORTS = ['', '50%', '60%', '70%', '80%', '90%', '100%'];
 function effortOptions(current) {
@@ -475,7 +492,7 @@ async function viewPlanEditor(planId, newClientId) {
   let nextDayId = 0;
   const newDay = (name) => ({ id: `d${nextDayId++}`, name });
   const blank = (dayId) => ({
-    dayId, name: '', rest: '', notes: '', exercise_id: null, superset: false,
+    dayId, name: '', rest: '', notes: '', exercise_id: null, superset: false, block: null,
     targets: [blankTarget(), blankTarget(), blankTarget()], useTime: false,
   });
 
@@ -492,6 +509,7 @@ async function viewPlanEditor(planId, newClientId) {
       dayId: day.id,
       exercise_id: e.exercise_id ?? null,
       superset: Boolean(e.superset),
+      block: e.block?.type ? { ...e.block } : null,
       targets: planTargets(e),
     });
     rows.at(-1).useTime = rows.at(-1).targets.some((t) => t.time.trim());
@@ -544,12 +562,34 @@ async function viewPlanEditor(planId, newClientId) {
   const rowsEl = $('#rows');
   const drawRows = () => {
     const labels = planLabels(rows.map((r) => ({ ...r, day: r.dayId })));
-    const exerciseCard = (r, i, last = lastResult(r)) => html`
-      <fieldset class="card exercise-edit ${labels[i].size > 1 ? 'in-superset' : ''} ${labels[i].joined ? 'joined' : ''}" data-index="${i}">
+    // Blok (EMOM/AMRAP/…) zapisany jest przy pierwszym ćwiczeniu grupy – szukamy go dla każdego ćwiczenia.
+    const leaderOf = (i) => {
+      let k = i;
+      while (k > 0 && labels[k].joined) k -= 1;
+      return k;
+    };
+    const blockOf = (i) => rows[leaderOf(i)].block;
+    const exerciseCard = (r, i, last = lastResult(r)) => {
+      const block = blockOf(i);
+      const isLeader = !labels[i].joined;
+      const targetsShown = block ? r.targets.slice(0, 1) : r.targets;
+      return html`
+      <fieldset class="card exercise-edit ${labels[i].size > 1 || block ? 'in-superset' : ''} ${labels[i].joined ? 'joined' : ''}" data-index="${i}">
         ${labels[i].canJoin ? html`<label class="superset-toggle">
           <input type="checkbox" data-superset ${r.superset ? 'checked' : ''}>
-          <span>Superseria z poprzednim ćwiczeniem</span>
+          <span>${blockOf(i - 1) ? `W bloku ${BLOCK_TYPES[blockOf(i - 1).type]} z poprzednim ćwiczeniem` : 'Superseria z poprzednim ćwiczeniem'}</span>
         </label>` : ''}
+        ${isLeader ? html`<div class="block-edit">
+          <label>Format
+            <select data-block-type>
+              <option value="">Serie (standard)</option>
+              ${Object.entries(BLOCK_TYPES).map(([key, label]) => html`<option value="${key}" ${r.block?.type === key ? 'selected' : ''}>${label}</option>`)}
+            </select>
+          </label>
+          ${blockParams(r.block)}
+        </div>
+        ${block ? html`<p class="block-title">${icons.link} ${blockTitle(block)}</p>
+          <p class="muted small">Kolejne ćwiczenia dołącz do bloku zaznaczeniem „W bloku…” przy nich.</p>` : ''}` : ''}
         <div class="row">
           <span class="ex-label" title="Oznaczenie w planie">${labels[i].label}</span>
           <span class="grow"></span>
@@ -564,9 +604,9 @@ async function viewPlanEditor(planId, newClientId) {
           <p class="combo-hint small">${linkHint(r)}</p>
         </div>
         <table class="sets plan-sets">
-          <thead><tr><th>Seria</th><th>${r.useTime ? 'Czas (s)' : 'Powt.'}</th><th>Intens.</th>
+          <thead><tr><th>${block ? '' : 'Seria'}</th><th>${r.useTime ? 'Czas (s)' : block ? 'Powt. / runda' : 'Powt.'}</th><th>Intens.</th>
             <th>Ostatnio${last ? html`<br><span class="muted">${formatDate(last.date).slice(0, 5)}</span>` : ''}</th></tr></thead>
-          <tbody>${r.targets.map((t, ti) => html`<tr data-target="${ti}">
+          <tbody>${targetsShown.map((t, ti) => html`<tr data-target="${ti}">
             <td><span class="set-no">${ti + 1}</span></td>
             ${r.useTime
               ? html`<td><input data-t="time" value="${t.time}" inputmode="numeric" autocomplete="off" aria-label="Czas seria ${ti + 1}"></td>`
@@ -578,8 +618,8 @@ async function viewPlanEditor(planId, newClientId) {
           </tr>`)}</tbody>
         </table>
         <div class="wk-actions">
-          <button type="button" class="chip" data-add-target ${r.targets.length >= 12 ? 'disabled' : ''}>${icons.plus} Seria</button>
-          <button type="button" class="chip" data-remove-target ${r.targets.length <= 1 ? 'disabled' : ''}>− Seria</button>
+          ${block ? '' : html`<button type="button" class="chip" data-add-target ${r.targets.length >= 12 ? 'disabled' : ''}>${icons.plus} Seria</button>
+          <button type="button" class="chip" data-remove-target ${r.targets.length <= 1 ? 'disabled' : ''}>− Seria</button>`}
           <label class="chip chip-check ${r.useTime ? 'active' : ''}"><input type="checkbox" data-use-time ${r.useTime ? 'checked' : ''}> Na czas (s)</label>
         </div>
         <p class="muted small plan-sets-hint">Ciężar wynika z progresu – podopieczny zobaczy w treningu swój ostatni wynik.</p>
@@ -588,6 +628,7 @@ async function viewPlanEditor(planId, newClientId) {
           <label>Wskazówki<input data-field="notes" value="${r.notes}" placeholder="np. tempo, technika" autocomplete="off"></label>
         </div>
       </fieldset>`;
+    };
     rowsEl.innerHTML = html`${days.map((day) => {
       const dayRows = rows.map((r, i) => [r, i]).filter(([r]) => r.dayId === day.id);
       return html`
@@ -644,6 +685,11 @@ async function viewPlanEditor(planId, newClientId) {
   };
 
   rowsEl.addEventListener('input', (event) => {
+    if (event.target.dataset.blockParam) {
+      const row = rows[event.target.closest('[data-index]').dataset.index];
+      row.block[event.target.dataset.blockParam] = event.target.value.trim();
+      return;
+    }
     if ('dayName' in event.target.dataset) {
       days.find((d) => d.id === event.target.closest('[data-day]').dataset.day).name = event.target.value;
       return;
@@ -672,6 +718,9 @@ async function viewPlanEditor(planId, newClientId) {
       drawRows();
     } else if ('useTime' in event.target.dataset) {
       rows[fieldset.dataset.index].useTime = event.target.checked;
+      drawRows();
+    } else if ('blockType' in event.target.dataset) {
+      rows[fieldset.dataset.index].block = defaultBlock(event.target.value);
       drawRows();
     }
   });
@@ -772,6 +821,7 @@ async function viewPlanEditor(planId, newClientId) {
     const dayName = (row) => days.find((d) => d.id === row.dayId).name.trim();
     const filled = rows
       .map((r) => {
+        const block = r.block ? Object.fromEntries(Object.entries(r.block).filter(([, v]) => v !== '' && v != null)) : null;
         // Ćwiczenie „Na czas” ma tylko czas, pozostałe tylko powtórzenia.
         // Plan nie zawiera ciężaru (wynika z progresu podopiecznego).
         const targets = cleanTargets(r.targets).map((t) => ({ ...t, weight: '', ...(r.useTime ? { reps: '' } : { time: '' }) }));
@@ -782,14 +832,23 @@ async function viewPlanEditor(planId, newClientId) {
         };
         return {
           ...Object.fromEntries(FIELDS.map((f) => [f, r[f].trim()])),
-          day: dayName(r), exercise_id: r.exercise_id, superset: r.superset,
+          day: dayName(r), exercise_id: r.exercise_id, superset: r.superset, block,
           set_targets: targets, sets: String(targets.length), reps: joined('reps'), weight: joined('weight'),
         };
       })
       .filter((r) => r.name);
     // Superseria tylko tam, gdzie jest poprzednie ćwiczenie w tym samym dniu.
     const labels = planLabels(filled);
-    const exercises = filled.map((r, i) => ({ ...r, superset: r.superset && labels[i].canJoin }));
+    let leaderBlock = null;
+    const exercises = filled.map((r, i) => {
+      const superset = r.superset && labels[i].canJoin;
+      if (!superset) leaderBlock = r.block;
+      // W bloku (EMOM/AMRAP/…) każde ćwiczenie ma jedno zadanie na rundę.
+      const targets = leaderBlock ? r.set_targets.slice(0, 1) : r.set_targets;
+      const { block, ...rest } = r;
+      // Kolumna block tylko gdy blok jest ustawiony (plany bez bloków zapisują się też przed migracją 008).
+      return { ...rest, superset, ...(block && !superset ? { block } : {}), set_targets: targets, sets: String(targets.length) };
+    });
     await submitting(event.target, async () => {
       const id = await api.savePlan({ id: planId, client_id: clientId, name: planName.trim(), notes: planNotes.trim() }, exercises);
       toast('Plan zapisany', 'success');
@@ -816,16 +875,20 @@ async function viewPlan(planId) {
     const day = ex.day || 'Ćwiczenia';
     if (days.at(-1)?.day !== day) days.push({ day, rawDay: ex.day || '', groups: [] });
     const groups = days.at(-1).groups;
-    if (!labels[i].joined) groups.push([]);
-    groups.at(-1).push({ ex, label: labels[i].label });
+    if (!labels[i].joined) {
+      const group = [];
+      group.block = ex.block?.type ? ex.block : null;
+      groups.push(group);
+    }
+    groups.at(-1).push({ ex, label: labels[i].label, inBlock: Boolean(groups.at(-1).block) });
   });
 
-  const exerciseItem = ({ ex, label }) => {
+  const exerciseItem = ({ ex, label, inBlock }) => {
     const info = resolveExercise(library, { id: ex.exercise_id, name: ex.name });
     const body = html`
       <strong>${ex.name}</strong>
-      ${details(ex) ? html`<span class="ex-details">${details(ex)}</span>` : ''}
-      ${setLines(ex)}
+      ${details(ex, inBlock) ? html`<span class="ex-details">${details(ex, inBlock)}</span>` : ''}
+      ${setLines(ex, inBlock)}
       ${ex.notes ? html`<span class="muted small">${ex.notes}</span>` : ''}
       ${info && (hasMedia(info) || info.description) ? html`<span class="ex-link">${icons.play} ${hasMedia(info) ? 'Zobacz, jak wykonać' : 'Opis techniki'}</span>` : ''}`;
     const content = html`<span class="ex-label">${label}</span><span class="ex-text">${body}</span>${info ? exerciseThumb(info, { animate: true }) : ''}`;
@@ -835,8 +898,12 @@ async function viewPlan(planId) {
   };
 
   // Jednakowe serie w jednej linijce, różne – każda seria osobno.
-  const details = (ex) => [targetsSummary(planTargets(ex)), ex.rest && `przerwa ${ex.rest}`].filter(Boolean).join(' · ');
-  const setLines = (ex) => {
+  // W bloku (EMOM/AMRAP/…) ćwiczenie ma jedno zadanie na rundę.
+  const details = (ex, inBlock) => (inBlock
+    ? targetText(planTargets(ex)[0]) || ''
+    : [targetsSummary(planTargets(ex)), ex.rest && `przerwa ${ex.rest}`].filter(Boolean).join(' · '));
+  const setLines = (ex, inBlock) => {
+    if (inBlock) return '';
     const targets = planTargets(ex);
     if (targetsSummary(targets)) return '';
     return html`<span class="set-lines">${targets.map((t, n) => html`<span><b>${n + 1}.</b> ${targetText(t) || '–'}</span>`)}</span>`;
@@ -854,7 +921,12 @@ async function viewPlan(planId) {
             <h2>${day}</h2>
             <a class="btn btn-small" href="#/workout/new?plan=${plan.id}&day=${encodeURIComponent(rawDay)}">${icons.play} Rozpocznij trening</a>
           </div>
-          <ol class="card exercises">${groups.map((group) => (group.length > 1
+          <ol class="card exercises">${groups.map((group) => (group.block
+            ? html`<li class="superset block">
+                <p class="superset-head">${icons.link} ${blockTitle(group.block)}</p>
+                <ol>${group.map(exerciseItem)}</ol>
+              </li>`
+            : group.length > 1
             ? html`<li class="superset">
                 <p class="superset-head">${icons.link} Superseria – wykonuj jedno po drugim, bez przerwy między ćwiczeniami</p>
                 <ol>${group.map(exerciseItem)}</ol>
@@ -894,7 +966,8 @@ async function viewMyPlans() {
       <div id="my-summary" class="stack"></div>
       <h2>Twoje plany</h2>
       ${plans.length ? planList(plans) : emptyState('Trener nie przygotował jeszcze dla Ciebie planu. Zajrzyj tu wkrótce!')}
-      <h2>Ostatnie treningi</h2>
+      <div class="row gap section-head"><h2 class="grow">Ostatnie treningi</h2>
+        <a class="btn btn-small" href="#/workout/new">${icons.plus} ${FREE_WORKOUT}</a></div>
       <div id="my-workouts"></div>`,
   });
   $('#my-summary').innerHTML = await clientSummary(me.id);

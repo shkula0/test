@@ -6,6 +6,8 @@ Aplikacja na telefon (PWA) dla trenera personalnego i jego podopiecznych.
 - **Podopieczny** widzi swoje plany i zapisuje pomiary ciała – samodzielne (waga, wzrost, obwody; BMI liczone automatycznie) i z wagi do analizy składu ciała (PBF, BFM, SMM, tłuszcz trzewny, TBW) – oraz wyniki w ćwiczeniach. Na tej podstawie powstają wykresy, m.in. szacowanego ciężaru maksymalnego (1RM).
 - **Biblioteka ćwiczeń**: bazowy zestaw ponad 40 ćwiczeń, a do tego własne ćwiczenia trenera ze zdjęciem lub filmem (plik z telefonu albo link do YouTube) i opisem techniki. Ćwiczenie można udostępnić innym trenerom. Podopieczny klika ćwiczenie w planie i widzi, jak je wykonać.
 - **Dziennik treningów**: trening startuje z wybranego dnia planu ze wszystkimi ćwiczeniami; w polach na szaro widać wynik z poprzedniego treningu z tego planu (przy pierwszym treningu pola są puste), a stuknięcie numeru serii odhacza ją i zatwierdza szare wartości. Treningi zapisuje trener albo podopieczny, a serie trafiają do wykresów siły.
+- **Trening dowolny** (bez planu): ćwiczenia dodaje się w trakcie; ostatni ciężar w każdym ćwiczeniu jest pamiętany niezależnie od tego, czy był robiony w planie, czy w treningu dowolnym.
+- **Bloki w planie**: EMOM, AMRAP, For Time i Tabata – format ustawia się przy pierwszym ćwiczeniu grupy, a w treningu wpisuje się wynik bloku (z podglądem poprzedniego).
 - **Podsumowanie** na start: największy progres, tonaż tygodnia i miesiąca z porównaniem do poprzedniego okresu, liczba treningów, rekordy z 30 dni i seria tygodni z treningiem.
 - **Pobieranie wyników**: w zakładce Postępy raport PDF (podsumowanie, progres, pomiary, historia treningów) i plik Excel ze wszystkimi danymi.
 - **Rutyny na wolną chwilę**: trener tworzy krótkie treningi (mobilność, postawa, rozciąganie…) z filmem i listą ćwiczeń; podopieczni oglądają, ćwiczą i odhaczają „Zrobione”, co liczy się do serii.
@@ -26,7 +28,7 @@ python3 -m http.server 8000
 ### 1. Baza danych (Supabase, darmowy plan)
 
 1. Załóż konto na <https://supabase.com> i utwórz nowy projekt (region np. *Central EU – Frankfurt*).
-2. Otwórz **SQL Editor → New query**, wklej całą zawartość pliku [`supabase/schema.sql`](supabase/schema.sql) i kliknij **Run**. Potem w nowych zapytaniach zrób to samo kolejno z plikami [`supabase/002_biblioteka_cwiczen.sql`](supabase/002_biblioteka_cwiczen.sql) (biblioteka ćwiczeń i miejsce na zdjęcia/filmy) [`supabase/003_superserie.sql`](supabase/003_superserie.sql) (superserie w planach), [`supabase/004_pomiary.sql`](supabase/004_pomiary.sql) (rozszerzone pomiary ciała), [`supabase/005_treningi.sql`](supabase/005_treningi.sql) (dziennik treningów), [`supabase/006_serie_w_planie.sql`](supabase/006_serie_w_planie.sql) (serie rozpisane w planie) i [`supabase/007_rutyny.sql`](supabase/007_rutyny.sql) (rutyny na wolną chwilę).
+2. Otwórz **SQL Editor → New query**, wklej całą zawartość pliku [`supabase/schema.sql`](supabase/schema.sql) i kliknij **Run**. Potem w nowych zapytaniach zrób to samo kolejno z plikami [`supabase/002_biblioteka_cwiczen.sql`](supabase/002_biblioteka_cwiczen.sql) (biblioteka ćwiczeń i miejsce na zdjęcia/filmy) [`supabase/003_superserie.sql`](supabase/003_superserie.sql) (superserie w planach), [`supabase/004_pomiary.sql`](supabase/004_pomiary.sql) (rozszerzone pomiary ciała), [`supabase/005_treningi.sql`](supabase/005_treningi.sql) (dziennik treningów), [`supabase/006_serie_w_planie.sql`](supabase/006_serie_w_planie.sql) (serie rozpisane w planie), [`supabase/007_rutyny.sql`](supabase/007_rutyny.sql) (rutyny na wolną chwilę) i [`supabase/008_bloki_i_trening_dowolny.sql`](supabase/008_bloki_i_trening_dowolny.sql) (bloki EMOM/AMRAP/For Time/Tabata).
 3. W **Authentication → Sign In / Providers → Email** zdecyduj o potwierdzaniu adresu email:
    - wyłącz **Confirm email**, jeśli podopieczni mają od razu korzystać z aplikacji po rejestracji, **albo**
    - zostaw włączone. Wtedy po rejestracji przyjdzie mail z linkiem. Ustaw wcześniej **Authentication → URL Configuration → Site URL** na adres swojej aplikacji (krok 3).
@@ -89,6 +91,7 @@ Po zmianie plików podbij wersję w [`sw.js`](sw.js) (`const CACHE = 'trener-v2'
 | `js/export.js` | Eksport do PDF i Excela |
 | `js/routines.js` | Rutyny na wolną chwilę |
 | `supabase/007_rutyny.sql` | Rutyny i ich wykonania |
+| `supabase/008_bloki_i_trening_dowolny.sql` | Formaty bloków w planie i wyniki bloków w treningu |
 | `vendor/jspdf*.js`, `vendor/xlsx.mini.min.js`, `vendor/fonts/` | jsPDF 4.2.1 + AutoTable 5.0.9 (MIT), SheetJS 0.18.5 (Apache-2.0), czcionka DejaVu Sans z polskimi znakami – ładowane tylko przy eksporcie |
 
 ## Pomysły na kolejne wersje

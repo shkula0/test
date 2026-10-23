@@ -719,3 +719,20 @@ fieldset { margin: 0; min-width: 0; }
 }
 .thumb-add .icon { width: 18px; height: 18px; }
 .routine-items .thumb, .exercises .thumb { width: 64px; height: 64px; border-radius: 12px; }
+
+/* ---------- Bloki (EMOM/AMRAP/For Time/Tabata) i trening dowolny ---------- */
+
+.block-edit { display: flex; flex-wrap: wrap; gap: 8px; }
+.block-edit label { flex: 1 1 90px; }
+.block-edit label:first-child { flex: 2 1 160px; }
+.block-title { display: flex; align-items: center; gap: 6px; margin: 0; color: var(--accent); font-weight: 700; font-size: 0.9rem; }
+.block-title .icon { width: 16px; height: 16px; flex: none; }
+.block-result { display: flex; align-items: flex-end; gap: 8px; }
+.block-result label { flex: 1; }
+.wk-ex.block-done { background: var(--accent-soft); }
+.block-score { margin: 0; font-size: 0.95rem; }
+.wk-add { display: flex; align-items: flex-end; gap: 8px; }
+.wk-add label { flex: 1; }
+.section-head { align-items: center; }
+.section-head h2 { margin: 0; }
+.block-sets th:nth-child(1), .block-sets td:nth-child(1) { width: 34%; text-align: left; }

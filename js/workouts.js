@@ -5,7 +5,9 @@ import { api } from './data/index.js';
 import { icons } from './icons.js';
 import { normalize, resolveExercise } from './library.js';
 import { exerciseThumb } from './media.js';
-import { isTimeBased, planLabels, planTargets, targetText } from './plan-utils.js';
+import {
+  blockResultLabel, blockResultPlaceholder, blockTitle, isTimeBased, letterFor, planLabels, planTargets, targetText,
+} from './plan-utils.js';
 import { $, html, toast, todayIso, formatDate, formatNumber, toNumber } from './ui.js';
 
 const MAX_SETS = 12;
@@ -66,23 +68,36 @@ export function previousByExercise(allSets, { planId, day, excludeId }) {
 // Rozpoczęcie / edycja treningu
 // ============================================================
 
-export async function viewWorkoutEditor(ctx, { workoutId, planId, day }) {
+export const FREE_WORKOUT = 'Trening dowolny';
+
+export async function viewWorkoutEditor(ctx, { workoutId, planId, day, clientId }) {
   const { me } = ctx;
   const existing = workoutId ? await api.getWorkout(workoutId) : null;
   if (workoutId && !existing) return ctx.viewNotFound();
 
-  const planData = await api.getPlan(existing?.workout.plan_id ?? planId).catch(() => null);
-  if (!existing && !planData) return ctx.viewNotFound();
+  const planRef = existing ? existing.workout.plan_id : planId;
+  const planData = planRef ? await api.getPlan(planRef).catch(() => null) : null;
+  if (!existing && planId && !planData) return ctx.viewNotFound();
 
-  const workout = existing?.workout ?? {
+  // Trening dowolny: bez planu, ćwiczenia dodaje się w trakcie.
+  const free = !planRef && !(existing?.workout.plan_name);
+  const workout = existing?.workout ?? (planData ? {
     client_id: planData.plan.client_id,
     plan_id: planData.plan.id,
     plan_name: planData.plan.name,
     day: day ?? '',
     performed_on: todayIso(),
     notes: '',
-  };
+  } : {
+    client_id: clientId ?? me.id,
+    plan_id: null,
+    plan_name: '',
+    day: FREE_WORKOUT,
+    performed_on: todayIso(),
+    notes: '',
+  });
   const [library, allSets] = await Promise.all([api.listExercises(), api.listWorkoutSets(workout.client_id)]);
+  // „Poprzednio”: najpierw ten sam plan i dzień, a jeśli tam ćwiczenia nie było – ostatni dowolny trening z nim.
   const previous = previousByExercise(allSets, { planId: workout.plan_id, day: workout.day, excludeId: existing?.workout.id });
 
   // Ćwiczenia z planu (dla danego dnia) – do celów i do nowego treningu.
@@ -101,10 +116,13 @@ export async function viewWorkoutEditor(ctx, { workoutId, planId, day }) {
       if (!byPosition.has(set.position)) {
         byPosition.set(set.position, {
           name: set.exercise_name, exercise_id: set.exercise_id, label: set.label, joined: false, note: '', sets: [],
+          block: null, blockResult: '',
         });
       }
       const item = byPosition.get(set.position);
       if (set.note) item.note = set.note;
+      if (set.block?.type) item.block = set.block;
+      if (set.block_result) item.blockResult = set.block_result;
       if (set.weight != null || set.reps != null || set.duration_s != null || set.done) {
         item.sets.push({
           weight: set.weight != null ? inputNumber(set.weight) : '',
@@ -125,11 +143,13 @@ export async function viewWorkoutEditor(ctx, { workoutId, planId, day }) {
       const count = planTargets(ex).length || prev?.sets.length || 1;
       return {
         name: ex.name, exercise_id: ex.exercise_id ?? null, label: label.label, joined: label.joined, note: '',
-        sets: Array.from({ length: count }, blankSet),
+        sets: Array.from({ length: count }, blankSet), block: ex.block?.type ? ex.block : null, blockResult: '',
       };
     });
   }
-  items.forEach((item) => {
+
+  // Ustawienia zależne od planu i historii; wywoływane też dla ćwiczeń dodanych w trakcie.
+  const prepare = (item) => {
     item.showNote = Boolean(item.note);
     const plan = planByName.get(normalize(item.name));
     item.targets = plan ? planTargets(plan) : [];
@@ -139,7 +159,18 @@ export async function viewWorkoutEditor(ctx, { workoutId, planId, day }) {
       ? isTimeBased(item.targets)
       : Boolean(prev?.sets.some((x) => x.duration_s != null) && !prev.sets.some((x) => x.reps != null))
         || item.sets.some((x) => x.time !== '' && x.reps === '');
-  });
+  };
+  items.forEach(prepare);
+  // Blok (EMOM/AMRAP/…) obejmuje pierwsze ćwiczenie grupy i dołączone do niego; w bloku jedno zadanie na rundę.
+  const assignBlocks = () => {
+    let current = null;
+    items.forEach((item) => {
+      if (!item.joined) current = item.block ?? null;
+      item.groupBlock = current;
+      if (current && item.sets.length > 1) item.sets = item.sets.slice(0, 1);
+    });
+  };
+  assignBlocks();
 
   // Szare podpowiedzi w polach: wyłącznie wynik z poprzedniego treningu (przy pierwszym treningu – puste).
   const ghostOf = (item, n) => {
@@ -151,22 +182,34 @@ export async function viewWorkoutEditor(ctx, { workoutId, planId, day }) {
       time: before?.duration_s ?? null,
     };
   };
+  const previousBlockResult = (item) => previous.get(normalize(item.name))?.sets.find((x) => x.block_result)?.block_result ?? '';
 
-  const backTo = existing ? `/workout/${existing.workout.id}` : `/plan/${workout.plan_id}`;
+  const backTo = existing ? `/workout/${existing.workout.id}`
+    : planData ? `/plan/${workout.plan_id}`
+      : me.role === 'coach' ? `/client/${workout.client_id}?tab=workouts` : '/';
   ctx.renderShell({
-    title: existing ? 'Edytuj trening' : 'Trening',
+    title: existing ? 'Edytuj trening' : free ? FREE_WORKOUT : 'Trening',
     back: backTo,
     nav: me.role === 'coach' ? 'clients' : 'plans',
     body: html`
       <section class="card wk-top">
         <div class="grow">
-          <strong>${workout.plan_name}</strong>${workout.day ? html` · ${workout.day}` : ''}
-          <p class="muted small"><span class="ghost-sample">Szare liczby</span> to wynik z poprzedniego treningu (przy pierwszym treningu pola są puste).
+          ${free
+            ? html`<label>Nazwa treningu<input id="wk-title" value="${workout.day}" autocomplete="off" placeholder="np. Funkcjonalny – obwód"></label>`
+            : html`<strong>${workout.plan_name}</strong>${workout.day ? html` · ${workout.day}` : ''}`}
+          <p class="muted small"><span class="ghost-sample">Szare liczby</span> to ostatni wynik w danym ćwiczeniu (przy pierwszym razie pola są puste).
             Bez zmian? Stuknij numer serii, żeby ją odhaczyć. Progres? Najpierw wpisz nowy wynik.</p>
         </div>
         <label class="wk-date">Data<input type="date" id="wk-date" value="${workout.performed_on}" required></label>
       </section>
       <div id="wk-items" class="stack"></div>
+      <section class="card wk-add">
+        <label>Dodaj ćwiczenie
+          <input id="wk-add-name" list="wk-add-list" autocomplete="off" placeholder="Zacznij pisać, np. Przysiad…">
+        </label>
+        <datalist id="wk-add-list">${library.map((e) => html`<option value="${e.name}">`)}</datalist>
+        <button type="button" class="btn btn-outline" id="wk-add">${icons.plus} Dodaj</button>
+      </section>
       <section class="card">
         <label>Notatka do treningu<textarea id="wk-notes" rows="2" placeholder="Samopoczucie, uwagi…">${workout.notes}</textarea></label>
       </section>
@@ -174,6 +217,19 @@ export async function viewWorkoutEditor(ctx, { workoutId, planId, day }) {
   });
 
   const container = $('#wk-items');
+  const exerciseHead = (item, i, plan, prev, info) => html`
+    <div class="wk-head">
+      <span class="ex-label">${item.label || i + 1}</span>
+      <div class="grow">
+        <strong>${item.name}</strong>
+        ${plan?.rest && !item.groupBlock ? html`<br><span class="muted small">Przerwa: ${plan.rest}</span>` : ''}
+        ${plan?.notes ? html`<br><span class="muted small">${plan.notes}</span>` : ''}
+        ${prev ? html`<br><span class="muted small">Poprzednio: ${formatDate(prev.date)}</span>` : ''}
+      </div>
+      ${info ? html`<a href="#/exercise/${info.id}" target="_blank" class="wk-thumb" aria-label="Jak wykonać">${exerciseThumb(info, { animate: true })}</a>` : ''}
+      ${!plan ? html`<button type="button" class="icon-btn danger" data-remove-item aria-label="Usuń ćwiczenie z treningu">${icons.trash}</button>` : ''}
+    </div>`;
+
   const draw = () => {
     container.innerHTML = items.length ? html`${items.map((item, i) => {
       const info = resolveExercise(library, { id: item.exercise_id, name: item.name });
@@ -181,25 +237,50 @@ export async function viewWorkoutEditor(ctx, { workoutId, planId, day }) {
       const prev = previous.get(normalize(item.name));
       const next = items[i + 1];
       const inSuperset = item.joined || next?.joined;
+      const amountKey = item.timeMode ? 'time' : 'reps';
+
+      // Ćwiczenie w bloku: jedno zadanie na rundę, wynik całego bloku przy pierwszym ćwiczeniu.
+      if (item.groupBlock) {
+        const set = item.sets[0];
+        const ghost = ghostOf(item, 0);
+        const lastResult = !item.joined ? previousBlockResult(item) : '';
+        return html`
+          <section class="card wk-ex in-superset ${item.joined ? 'joined' : ''} ${set.done ? 'block-done' : ''}" data-item="${i}">
+            ${!item.joined ? html`<p class="superset-head">${icons.link} ${blockTitle(item.groupBlock)}</p>` : ''}
+            ${exerciseHead(item, i, plan, prev, info)}
+            <table class="sets block-sets" data-set="0">
+              <thead><tr><th>Zadanie</th><th>kg</th><th>${item.timeMode ? 'Czas (s)' : 'Powt.'}</th></tr></thead>
+              <tbody><tr class="${set.done ? 'done' : ''}" data-set="0">
+                <td class="set-target">${item.targets[0] ? targetText(item.targets[0]) || '–' : '–'}</td>
+                <td><input data-k="weight" value="${set.weight}" inputmode="decimal" autocomplete="off" aria-label="Ciężar"
+                  placeholder="${ghost.weight != null ? formatNumber(ghost.weight, 2) : ''}"></td>
+                <td><input data-k="${amountKey}" value="${set[amountKey]}" inputmode="numeric" autocomplete="off" aria-label="${item.timeMode ? 'Czas' : 'Powtórzenia'}"
+                  placeholder="${ghost[amountKey] ?? ''}"></td>
+              </tr></tbody>
+            </table>
+            ${!item.joined ? html`<div class="block-result">
+              <label>${blockResultLabel(item.groupBlock)}
+                <input data-block-result value="${item.blockResult}" autocomplete="off"
+                  placeholder="${lastResult ? `ostatnio: ${lastResult}` : blockResultPlaceholder(item.groupBlock)}"></label>
+              <button type="button" class="btn ${set.done ? '' : 'btn-outline'}" data-block-done aria-pressed="${set.done}">
+                ${icons.check} ${set.done ? 'Blok zrobiony' : 'Zrobione'}</button>
+            </div>` : ''}
+            <div class="wk-actions">
+              <button type="button" class="chip ${item.showNote ? 'active' : ''}" data-toggle-note>${icons.edit} Notatka</button>
+            </div>
+            ${item.showNote ? html`<textarea data-note rows="2" placeholder="Uwagi do ćwiczenia (technika, odczucia)…">${item.note}</textarea>` : ''}
+          </section>`;
+      }
+
       return html`
         <section class="card wk-ex ${inSuperset ? 'in-superset' : ''} ${item.joined ? 'joined' : ''}" data-item="${i}">
           ${inSuperset && !item.joined ? html`<p class="superset-head">${icons.link} Superseria – jedno po drugim</p>` : ''}
-          <div class="wk-head">
-            <span class="ex-label">${item.label || i + 1}</span>
-            <div class="grow">
-              <strong>${item.name}</strong>
-              ${plan?.rest ? html`<br><span class="muted small">Przerwa: ${plan.rest}</span>` : ''}
-              ${plan?.notes ? html`<br><span class="muted small">${plan.notes}</span>` : ''}
-              ${prev ? html`<br><span class="muted small">Poprzednio: ${formatDate(prev.date)}</span>` : ''}
-            </div>
-            ${info ? html`<a href="#/exercise/${info.id}" target="_blank" class="wk-thumb" aria-label="Jak wykonać">${exerciseThumb(info, { animate: true })}</a>` : ''}
-          </div>
+          ${exerciseHead(item, i, plan, prev, info)}
           <table class="sets">
             <thead><tr><th>Seria</th><th>Plan</th><th>kg</th><th>${item.timeMode ? 'Czas (s)' : 'Powt.'}</th></tr></thead>
             <tbody>${item.sets.map((set, n) => {
               const target = item.targets[n];
               const ghost = ghostOf(item, n);
-              const amountKey = item.timeMode ? 'time' : 'reps';
               return html`<tr class="${set.done ? 'done' : ''}" data-set="${n}">
                 <td><button type="button" class="set-no set-toggle" data-done aria-pressed="${set.done}"
                   aria-label="Seria ${n + 1} – ${set.done ? 'zrobiona, stuknij aby cofnąć' : 'stuknij aby odhaczyć'}">${n + 1}</button></td>
@@ -216,20 +297,20 @@ export async function viewWorkoutEditor(ctx, { workoutId, planId, day }) {
             <button type="button" class="chip" data-add-set ${item.sets.length >= MAX_SETS ? 'disabled' : ''}>${icons.plus} Seria</button>
             <button type="button" class="chip" data-remove-set ${item.sets.length <= 1 ? 'disabled' : ''}>− Seria</button>
             <button type="button" class="chip ${item.showNote ? 'active' : ''}" data-toggle-note>${icons.edit} Notatka</button>
+            ${!plan ? html`<label class="chip chip-check ${item.timeMode ? 'active' : ''}"><input type="checkbox" data-time-mode ${item.timeMode ? 'checked' : ''}> Na czas (s)</label>` : ''}
           </div>
           ${item.showNote ? html`<textarea data-note rows="2" placeholder="Uwagi do ćwiczenia (technika, odczucia)…">${item.note}</textarea>` : ''}
         </section>`;
-    })}` : ctx.emptyState('Ten dzień planu nie ma ćwiczeń.');
+    })}` : ctx.emptyState(free ? 'Dodaj pierwsze ćwiczenie poniżej.' : 'Ten dzień planu nie ma ćwiczeń.');
   };
   draw();
 
   const itemOf = (el) => items[Number(el.closest('[data-item]').dataset.item)];
   const setOf = (el) => itemOf(el).sets[Number(el.closest('[data-set]').dataset.set)];
-  // ✓ zatwierdza szare wartości w pustych polach; wpisane ręcznie zostają.
-  const confirmGhost = (el) => {
-    const item = itemOf(el);
-    const set = setOf(el);
-    const ghost = ghostOf(item, Number(el.closest('[data-set]').dataset.set));
+  // Odhaczenie zatwierdza szare wartości w pustych polach; wpisane ręcznie zostają.
+  const confirmGhost = (item, n) => {
+    const set = item.sets[n];
+    const ghost = ghostOf(item, n);
     if (set.weight === '' && ghost.weight != null) set.weight = inputNumber(ghost.weight);
     const amountKey = item.timeMode ? 'time' : 'reps';
     if (set[amountKey] === '' && ghost[amountKey] != null) set[amountKey] = String(ghost[amountKey]);
@@ -239,32 +320,81 @@ export async function viewWorkoutEditor(ctx, { workoutId, planId, day }) {
     const { k } = event.target.dataset;
     if (k) setOf(event.target)[k] = event.target.value;
     if ('note' in event.target.dataset) itemOf(event.target).note = event.target.value;
+    if ('blockResult' in event.target.dataset) itemOf(event.target).blockResult = event.target.value;
+  });
+
+  container.addEventListener('change', (event) => {
+    if (!('timeMode' in event.target.dataset)) return;
+    itemOf(event.target).timeMode = event.target.checked;
+    draw();
   });
 
   container.addEventListener('click', (event) => {
     const button = event.target.closest('button');
     if (!button) return;
-    const item = itemOf(button);
+    const index = Number(button.closest('[data-item]').dataset.item);
+    const item = items[index];
     if ('done' in button.dataset) {
       const set = setOf(button);
       set.done = !set.done;
-      if (set.done) confirmGhost(button);
+      if (set.done) confirmGhost(item, Number(button.closest('[data-set]').dataset.set));
+    } else if ('blockDone' in button.dataset) {
+      // Cały blok: lider i dołączone ćwiczenia.
+      const done = !item.sets[0].done;
+      for (let k = index; k < items.length && (k === index || items[k].joined); k += 1) {
+        items[k].sets[0].done = done;
+        if (done) confirmGhost(items[k], 0);
+      }
     } else if ('addSet' in button.dataset) {
       item.sets.push(blankSet());
     } else if ('removeSet' in button.dataset) {
       item.sets.pop();
     } else if ('toggleNote' in button.dataset) {
       item.showNote = !item.showNote;
+    } else if ('removeItem' in button.dataset) {
+      if (item.sets.some((x) => x.weight || x.reps || x.time) && !confirm(`Usunąć „${item.name}” z tego treningu?`)) return;
+      const [removed] = items.splice(index, 1);
+      // Usunięto pierwsze ćwiczenie grupy – następne dołączone przejmuje jego rolę (i format bloku).
+      if (!removed.joined && items[index]?.joined) Object.assign(items[index], { joined: false, block: removed.block });
+      assignBlocks();
     } else {
       return;
     }
     draw();
   });
 
+  // Dodawanie ćwiczenia w trakcie treningu (trening dowolny albo coś spoza planu).
+  const addExercise = () => {
+    const input = $('#wk-add-name');
+    const name = input.value.trim();
+    if (!name) return input.focus();
+    const lib = library.find((e) => normalize(e.name) === normalize(name));
+    const prev = previous.get(normalize(name));
+    const groups = items.filter((x) => !x.joined).length;
+    const item = {
+      name: lib?.name ?? name, exercise_id: lib?.id ?? null, label: letterFor(groups), joined: false, note: '',
+      sets: Array.from({ length: Math.min(prev?.sets.length || 3, MAX_SETS) }, blankSet), block: null, blockResult: '',
+    };
+    prepare(item);
+    items.push(item);
+    assignBlocks();
+    input.value = '';
+    draw();
+    container.lastElementChild?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  };
+  $('#wk-add').addEventListener('click', addExercise);
+  $('#wk-add-name').addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      addExercise();
+    }
+  });
+
   $('#wk-save').addEventListener('click', async (event) => {
     const button = event.currentTarget;
     const performedOn = $('#wk-date').value;
     if (!performedOn) return toast('Podaj datę treningu.', 'error');
+    const title = free ? ($('#wk-title').value.trim() || FREE_WORKOUT) : workout.day;
     let sets;
     try {
       sets = collectSets(items);
@@ -274,7 +404,7 @@ export async function viewWorkoutEditor(ctx, { workoutId, planId, day }) {
     button.disabled = true;
     try {
       const id = await api.saveWorkout({
-        ...workout, id: existing?.workout.id, performed_on: performedOn, notes: $('#wk-notes').value.trim(),
+        ...workout, id: existing?.workout.id, day: title, performed_on: performedOn, notes: $('#wk-notes').value.trim(),
       }, sets);
       toast('Trening zapisany', 'success');
       ctx.go(`/workout/${id}`);
@@ -301,10 +431,14 @@ function collectSets(items) {
       kept.push({ weight, reps, duration_s: time, done: set.done });
     });
     const note = item.note.trim();
-    if (!kept.length && note) kept.push({ weight: null, reps: null, duration_s: null, done: false });
+    const blockResult = (item.blockResult ?? '').trim();
+    const isLeader = item.groupBlock && !item.joined;
+    if (!kept.length && (note || (isLeader && blockResult))) kept.push({ weight: null, reps: null, duration_s: null, done: false });
     kept.forEach((set, n) => sets.push({
       position, label: item.label ?? '', exercise_name: item.name, exercise_id: item.exercise_id ?? null,
       set_number: n + 1, ...set, note: n === 0 ? note : '',
+      // Pola bloku tylko przy pierwszym ćwiczeniu bloku (bez bloków zapis działa też przed migracją 008).
+      ...(isLeader && n === 0 ? { block: item.groupBlock, block_result: blockResult } : {}),
     }));
   });
   if (!sets.length) throw new Error('Wpisz lub zaznacz przynajmniej jedną serię.');
@@ -324,9 +458,13 @@ export async function viewWorkout(ctx, id) {
 
   const groups = [];
   for (const set of sets) {
-    if (groups.at(-1)?.position !== set.position) groups.push({ position: set.position, name: set.exercise_name, label: set.label, note: '', sets: [] });
+    if (groups.at(-1)?.position !== set.position) {
+      groups.push({ position: set.position, name: set.exercise_name, label: set.label, note: '', sets: [], block: null, result: '' });
+    }
     const group = groups.at(-1);
     if (set.note) group.note = set.note;
+    if (set.block?.type) group.block = set.block;
+    if (set.block_result) group.result = set.block_result;
     if (set.weight != null || set.reps != null || set.duration_s != null || set.done) group.sets.push(set);
   }
   const volume = volumeOf(sets);
@@ -347,6 +485,10 @@ export async function viewWorkout(ctx, id) {
         ${workout.notes ? html`<p class="pre-line">${workout.notes}</p>` : ''}
       </section>
       <ol class="card exercises">${groups.map((g) => html`
+        ${g.block ? html`<li class="superset block block-summary">
+          <p class="superset-head">${icons.link} ${blockTitle(g.block)}</p>
+          <p class="block-score">${blockResultLabel(g.block)}: <strong>${g.result || '–'}</strong></p>
+        </li>` : ''}
         <li>
           <div class="ex-row">
             ${g.label ? html`<span class="ex-label">${g.label}</span>` : ''}
@@ -361,7 +503,8 @@ export async function viewWorkout(ctx, id) {
         <a class="btn grow" href="#/workout/${workout.id}/edit">${icons.edit} Edytuj</a>
         <button class="btn btn-outline danger" id="delete-workout">${icons.trash} Usuń</button>
       </div>
-      ${workout.plan_id ? html`<a class="btn btn-outline btn-block" href="#/workout/new?plan=${workout.plan_id}&day=${encodeURIComponent(workout.day)}">${icons.play} Powtórz ten trening</a>` : ''}`,
+      ${workout.plan_id ? html`<a class="btn btn-outline btn-block" href="#/workout/new?plan=${workout.plan_id}&day=${encodeURIComponent(workout.day)}">${icons.play} Powtórz ten trening</a>` : ''}
+      ${!workout.plan_id && !workout.plan_name ? html`<a class="btn btn-outline btn-block" href="#/workout/new?client=${workout.client_id}">${icons.plus} Nowy ${FREE_WORKOUT.toLowerCase()}</a>` : ''}`,
   });
 
   $('#delete-workout').addEventListener('click', async () => {
