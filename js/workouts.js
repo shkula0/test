@@ -6,7 +6,8 @@ import { icons } from './icons.js';
 import { normalize, resolveExercise } from './library.js';
 import { exerciseThumb } from './media.js';
 import {
-  blockResultLabel, blockResultPlaceholder, blockTitle, isTimeBased, letterFor, planLabels, planTargets, targetText,
+  BLOCK_TYPES, blockParams, blockResultLabel, blockResultPlaceholder, blockTitle, defaultBlock, isTimeBased, letterFor,
+  planLabels, planTargets, targetText,
 } from './plan-utils.js';
 import { $, html, toast, todayIso, formatDate, formatNumber, toNumber } from './ui.js';
 
@@ -163,6 +164,11 @@ export async function viewWorkoutEditor(ctx, { workoutId, planId, day, clientId 
   items.forEach(prepare);
   // Blok (EMOM/AMRAP/…) obejmuje pierwsze ćwiczenie grupy i dołączone do niego; w bloku jedno zadanie na rundę.
   const assignBlocks = () => {
+    // Oznaczenia A, B1, B2… liczone na nowo (po dodaniu, usunięciu lub połączeniu ćwiczeń).
+    const labels = planLabels(items.map((item) => ({ day: '', superset: item.joined })));
+    items.forEach((item, i) => {
+      item.label = labels[i].label;
+    });
     let current = null;
     items.forEach((item) => {
       if (!item.joined) current = item.block ?? null;
@@ -217,7 +223,27 @@ export async function viewWorkoutEditor(ctx, { workoutId, planId, day, clientId 
   });
 
   const container = $('#wk-items');
+  // Ćwiczenia spoza planu (trening dowolny lub dodane w trakcie): łączenie w superserię i formaty bloków.
+  const structureControls = (item, i, plan) => {
+    if (plan) return '';
+    const prevBlock = i > 0 ? items[i - 1].groupBlock : null;
+    return html`
+      ${i > 0 ? html`<label class="superset-toggle">
+        <input type="checkbox" data-join ${item.joined ? 'checked' : ''}>
+        <span>${prevBlock ? `W bloku ${BLOCK_TYPES[prevBlock.type]} z poprzednim ćwiczeniem` : 'Superseria z poprzednim ćwiczeniem'}</span>
+      </label>` : ''}
+      ${!item.joined ? html`<div class="block-edit">
+        <label>Format
+          <select data-wk-block-type>
+            <option value="">Serie (standard)</option>
+            ${Object.entries(BLOCK_TYPES).map(([key, label]) => html`<option value="${key}" ${item.block?.type === key ? 'selected' : ''}>${label}</option>`)}
+          </select>
+        </label>
+        ${blockParams(item.block)}
+      </div>` : ''}`;
+  };
   const exerciseHead = (item, i, plan, prev, info) => html`
+    ${structureControls(item, i, plan)}
     <div class="wk-head">
       <span class="ex-label">${item.label || i + 1}</span>
       <div class="grow">
@@ -324,8 +350,23 @@ export async function viewWorkoutEditor(ctx, { workoutId, planId, day, clientId 
   });
 
   container.addEventListener('change', (event) => {
-    if (!('timeMode' in event.target.dataset)) return;
-    itemOf(event.target).timeMode = event.target.checked;
+    const item = itemOf(event.target);
+    const { dataset } = event.target;
+    if ('timeMode' in dataset) {
+      item.timeMode = event.target.checked;
+    } else if ('join' in dataset) {
+      item.joined = event.target.checked;
+      if (item.joined) item.block = null;
+      assignBlocks();
+    } else if ('wkBlockType' in dataset) {
+      item.block = defaultBlock(event.target.value);
+      assignBlocks();
+    } else if (dataset.blockParam) {
+      item.block[dataset.blockParam] = event.target.value.trim();
+      assignBlocks();
+    } else {
+      return;
+    }
     draw();
   });
 

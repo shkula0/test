@@ -1,5 +1,7 @@
 // Wspólne funkcje planów treningowych.
 
+import { html } from './ui.js';
+
 // Oznaczenia ćwiczeń w każdym dniu: pojedyncze A, B…, superserie C1, C2, C3.
 // Ćwiczenie z superset = true wykonuje się razem z poprzednim (w tym samym dniu).
 export function planLabels(exercises) {
@@ -142,4 +144,17 @@ export function blockResultLabel(block) {
 
 export function blockResultPlaceholder(block) {
   return { emom: 'np. 10', amrap: 'np. 5 + 7', fortime: 'np. 12:40', tabata: 'np. 96' }[block?.type] ?? '';
+}
+
+// Parametry bloku w edytorze (minuty, rundy, praca/przerwa).
+export function blockParams(block) {
+  if (!block) return '';
+  const field = (key, label) => html`<label>${label}<input data-block-param="${key}" value="${block[key] ?? ''}" inputmode="numeric" autocomplete="off"></label>`;
+  switch (block.type) {
+    case 'emom':
+    case 'amrap': return field('minutes', 'Czas (min)');
+    case 'fortime': return html`${field('rounds', 'Rundy')}${field('minutes', 'Limit (min)')}`;
+    case 'tabata': return html`${field('rounds', 'Rundy')}${field('work', 'Praca (s)')}${field('rest', 'Przerwa (s)')}`;
+    default: return '';
+  }
 }

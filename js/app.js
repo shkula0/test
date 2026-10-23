@@ -5,7 +5,8 @@ import { viewLibrary, viewExercise, viewExerciseEditor, normalize, openExerciseF
 import { exerciseThumb, hasMedia } from './media.js';
 import { bodySection, describeMetricRow, metricSourceLabel, readMetricForm } from './measurements.js';
 import {
-  BLOCK_TYPES, blankTarget, blockTitle, cleanTargets, defaultBlock, letterFor, planLabels, planTargets, targetText, targetsSummary,
+  BLOCK_TYPES, blankTarget, blockParams, blockTitle, cleanTargets, defaultBlock, letterFor, planLabels, planTargets, targetText,
+  targetsSummary,
 } from './plan-utils.js';
 import { FREE_WORKOUT, formatSet, previousByExercise, viewWorkout, viewWorkoutEditor, workoutList } from './workouts.js';
 import { computeSummary, exerciseProgress, strengthEntries, summarySection } from './summary.js';
@@ -458,19 +459,6 @@ function planList(plans) {
         <span class="muted small">Zaktualizowano ${formatDate(p.updated_at)}</span></span>
       ${icons.chevron}
     </a></li>`)}</ul>`;
-}
-
-// Parametry bloku w edytorze planu (minuty, rundy, praca/przerwa).
-function blockParams(block) {
-  if (!block) return '';
-  const field = (key, label) => html`<label>${label}<input data-block-param="${key}" value="${block[key] ?? ''}" inputmode="numeric" autocomplete="off"></label>`;
-  switch (block.type) {
-    case 'emom':
-    case 'amrap': return field('minutes', 'Czas (min)');
-    case 'fortime': return html`${field('rounds', 'Rundy')}${field('minutes', 'Limit (min)')}`;
-    case 'tabata': return html`${field('rounds', 'Rundy')}${field('work', 'Praca (s)')}${field('rest', 'Przerwa (s)')}`;
-    default: return '';
-  }
 }
 
 // Intensywność wybierana z listy 50–100% co 10%; inna, wcześniej wpisana wartość zostaje na liście.
