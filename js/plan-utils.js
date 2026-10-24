@@ -47,10 +47,11 @@ export function planWeight(weight) {
 // Serie rozpisane w planie: każda seria ma powtórzenia, kg, czas i intensywność.
 // ============================================================
 
-const TARGET_FIELDS = ['reps', 'weight', 'time', 'effort'];
+// kind: 'run' oznacza odcinek biegowy (dystans, czas, tempo, strefa).
+const TARGET_FIELDS = ['reps', 'weight', 'time', 'effort', 'distance', 'pace', 'kind'];
 
 export function blankTarget() {
-  return { reps: '', weight: '', time: '', effort: '' };
+  return { reps: '', weight: '', time: '', effort: '', distance: '', pace: '', kind: '' };
 }
 
 // Serie ćwiczenia z planu. Starsze plany (jedno pole „serie × powtórzenia”)
@@ -64,34 +65,73 @@ export function planTargets(ex) {
   const seconds = reps.match(/^(\d+)\s*(s|sek|sek\.|sekund)$/i);
   const weight = planWeight(String(ex.weight ?? ''));
   return Array.from({ length: count }, () => ({
+    ...blankTarget(),
     reps: seconds ? '' : reps,
     weight: weight.replace(/\s*kg$/i, ''),
     time: seconds ? seconds[1] : '',
-    effort: '',
   }));
 }
 
-export function isTimeBased(targets) {
-  return targets.some((t) => t.time.trim()) && !targets.some((t) => t.reps.trim());
+// Ćwiczenie biegowe: odcinki z dystansem, czasem, tempem i strefą.
+export function isRun(targets) {
+  return targets.some((t) => t.kind === 'run' || t.distance.trim() || t.pace.trim());
 }
 
-// „8–10 powt. · 70%” albo „45 s · 60%” – plan nie zawiera ciężaru (wynika z progresu).
+export function isTimeBased(targets) {
+  return !isRun(targets) && targets.some((t) => t.time.trim()) && !targets.some((t) => t.reps.trim());
+}
+
+// „8–10 powt. · 70%”, „45 s · 60%” albo dla biegu „400 m · 1:45 · 4:20/km · Z4”.
 export function targetText(t) {
+  if (t.kind === 'run' || t.distance.trim() || t.pace.trim()) {
+    return [t.distance.trim(), t.time.trim(), t.pace.trim() && `${t.pace.trim()}/km`, t.effort.trim()].filter(Boolean).join(' · ');
+  }
   const reps = t.reps.trim();
   return [reps && `${reps} powt.`, t.time.trim() && `${t.time.trim()} s`, t.effort.trim()].filter(Boolean).join(' · ');
 }
 
-// Jeśli wszystkie serie są takie same: „3 × 8–10 · 70%”, inaczej null.
+// Jeśli wszystkie serie są takie same: „3 × 8–10 · 70%” (bieg: „6 × 400 m · Z4”), inaczej null.
 export function targetsSummary(targets) {
-  const key = (t) => [t.reps, t.time, t.effort].map((v) => v.trim()).join('|');
+  const key = (t) => [t.reps, t.time, t.effort, t.distance, t.pace].map((v) => v.trim()).join('|');
   if (!targets.length || targets.some((t) => key(t) !== key(targets[0]))) return null;
   const t = targets[0];
+  if (isRun(targets)) {
+    const text = targetText(t);
+    return targets.length > 1 ? `${targets.length} × ${text || 'odcinek'}` : text || 'bieg';
+  }
   const parts = [
     t.reps.trim() ? `${targets.length} × ${t.reps.trim()}` : `${targets.length} ${targets.length === 1 ? 'seria' : targets.length < 5 ? 'serie' : 'serii'}`,
     t.time.trim() && `${t.time.trim()} s`,
     t.effort.trim(),
   ];
   return parts.filter(Boolean).join(' · ');
+}
+
+// Czas biegu: „25:30” → 1530 s, „1:02:10” → 3730 s, „30” → 1800 s (same minuty).
+export function parseClock(text) {
+  const value = String(text ?? '').trim().replace(',', '.');
+  if (!value) return null;
+  if (/^\d+(\.\d+)?$/.test(value)) return Math.round(Number(value) * 60);
+  const parts = value.split(':');
+  if (parts.length < 2 || parts.length > 3 || parts.some((p) => !/^\d+$/.test(p))) return NaN;
+  const [h, m, sec] = parts.length === 3 ? parts.map(Number) : [0, ...parts.map(Number)];
+  if (m > 59 && parts.length === 3) return NaN;
+  if (sec > 59) return NaN;
+  return h * 3600 + m * 60 + sec;
+}
+
+// 1530 → „25:30”, 3730 → „1:02:10”
+export function formatClock(seconds) {
+  const s = Math.round(Number(seconds) || 0);
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sec = String(s % 60).padStart(2, '0');
+  return h ? `${h}:${String(m).padStart(2, '0')}:${sec}` : `${m}:${sec}`;
+}
+
+// Tempo na km: 1530 s na 5000 m → „5:06”.
+export function formatPace(seconds, meters) {
+  return seconds > 0 && meters > 0 ? formatClock(seconds / (meters / 1000)) : '';
 }
 
 export function cleanTargets(targets) {

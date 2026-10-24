@@ -279,6 +279,7 @@ function translateError(message) {
   if (/exceeded the maximum allowed size|Payload too large/i.test(message)) return 'Plik jest za duży (maks. 50 MB).';
   if (message.startsWith('Password should be')) return 'Hasło musi mieć co najmniej 6 znaków.';
   if (/rate limit|only request this after/i.test(message)) return 'Za dużo prób – odczekaj chwilę i spróbuj ponownie.';
+  if (/distance_m/.test(message)) return 'Zapis biegu wymaga aktualizacji bazy – uruchom w Supabase plik 009_wlasne_treningi_i_bieg.sql.';
   if (/different from the old password/i.test(message)) return 'Nowe hasło musi być inne niż poprzednie.';
   return message;
 }

@@ -6,8 +6,8 @@ import { icons } from './icons.js';
 import { normalize, resolveExercise } from './library.js';
 import { exerciseThumb } from './media.js';
 import {
-  BLOCK_TYPES, blockParams, blockResultLabel, blockResultPlaceholder, blockTitle, defaultBlock, isTimeBased, letterFor,
-  planLabels, planTargets, targetText,
+  BLOCK_TYPES, blockParams, blockResultLabel, blockResultPlaceholder, blockTitle, defaultBlock, formatClock, formatPace,
+  isRun, isTimeBased, letterFor, parseClock, planLabels, planTargets, targetText,
 } from './plan-utils.js';
 import { $, html, toast, todayIso, formatDate, formatNumber, toNumber } from './ui.js';
 
@@ -25,6 +25,12 @@ function plural(n, one, few, many) {
 }
 
 export function formatSet(set) {
+  if (set.distance_m != null) {
+    const km = `${formatNumber(Number(set.distance_m) / 1000, 2)} km`;
+    if (set.duration_s == null) return km;
+    const pace = formatPace(set.duration_s, Number(set.distance_m));
+    return [km, formatClock(set.duration_s), pace && `${pace}/km`].filter(Boolean).join(' · ');
+  }
   const weight = set.weight != null && Number(set.weight) > 0 ? `${formatNumber(set.weight, 2)} kg` : '';
   const amount = set.duration_s != null ? `${set.duration_s} s` : set.reps != null ? `${set.reps}` : '';
   if (weight && amount) return `${weight} × ${amount}`;
@@ -109,7 +115,7 @@ export async function viewWorkoutEditor(ctx, { workoutId, planId, day, clientId 
     .filter(({ ex }) => (ex.day || '') === (workout.day || ''));
   const planByName = new Map(dayExercises.map(({ ex }) => [normalize(ex.name), ex]));
 
-  const blankSet = () => ({ weight: '', reps: '', time: '', done: false });
+  const blankSet = () => ({ weight: '', reps: '', time: '', distance: '', done: false });
   let items;
   if (existing) {
     const byPosition = new Map();
@@ -124,11 +130,14 @@ export async function viewWorkoutEditor(ctx, { workoutId, planId, day, clientId 
       if (set.note) item.note = set.note;
       if (set.block?.type) item.block = set.block;
       if (set.block_result) item.blockResult = set.block_result;
-      if (set.weight != null || set.reps != null || set.duration_s != null || set.done) {
+      if (set.weight != null || set.reps != null || set.duration_s != null || set.distance_m != null || set.done) {
+        const run = set.distance_m != null;
         item.sets.push({
           weight: set.weight != null ? inputNumber(set.weight) : '',
           reps: set.reps != null ? String(set.reps) : '',
-          time: set.duration_s != null ? String(set.duration_s) : '',
+          // Bieg: czas jako „mm:ss”, dystans w km.
+          time: set.duration_s != null ? (run ? formatClock(set.duration_s) : String(set.duration_s)) : '',
+          distance: run ? inputNumber(Number(set.distance_m) / 1000) : '',
           done: set.done,
         });
       }
@@ -155,8 +164,12 @@ export async function viewWorkoutEditor(ctx, { workoutId, planId, day, clientId 
     const plan = planByName.get(normalize(item.name));
     item.targets = plan ? planTargets(plan) : [];
     const prev = previous.get(normalize(item.name));
+    // Bieg: dystans i czas zamiast kg i powtórzeń.
+    item.runMode = item.targets.length
+      ? isRun(item.targets)
+      : Boolean(prev?.sets.some((x) => x.distance_m != null)) || item.sets.some((x) => x.distance !== '');
     // Ćwiczenie na czas (np. plank): zamiast powtórzeń wpisujemy sekundy.
-    item.timeMode = item.targets.length
+    item.timeMode = !item.runMode && item.targets.length
       ? isTimeBased(item.targets)
       : Boolean(prev?.sets.some((x) => x.duration_s != null) && !prev.sets.some((x) => x.reps != null))
         || item.sets.some((x) => x.time !== '' && x.reps === '');
@@ -186,6 +199,8 @@ export async function viewWorkoutEditor(ctx, { workoutId, planId, day, clientId 
       weight: before && Number(before.weight) > 0 ? Number(before.weight) : null,
       reps: before?.reps ?? null,
       time: before?.duration_s ?? null,
+      distance: before?.distance_m != null ? Number(before.distance_m) / 1000 : null,
+      clock: before?.duration_s != null ? formatClock(before.duration_s) : null,
     };
   };
   const previousBlockResult = (item) => previous.get(normalize(item.name))?.sets.find((x) => x.block_result)?.block_result ?? '';
@@ -256,6 +271,14 @@ export async function viewWorkoutEditor(ctx, { workoutId, planId, day, clientId 
       ${!plan ? html`<button type="button" class="icon-btn danger" data-remove-item aria-label="Usuń ćwiczenie z treningu">${icons.trash}</button>` : ''}
     </div>`;
 
+  // Tempo odcinka (min/km) z wpisanych wartości; puste, gdy brakuje dystansu albo czasu.
+  const paceOf = (set) => {
+    const km = toNumber(set.distance);
+    const seconds = parseClock(set.time);
+    const pace = km > 0 && seconds > 0 ? formatPace(seconds, km * 1000) : '';
+    return pace ? `${pace}/km` : '';
+  };
+
   const draw = () => {
     container.innerHTML = items.length ? html`${items.map((item, i) => {
       const info = resolveExercise(library, { id: item.exercise_id, name: item.name });
@@ -298,6 +321,43 @@ export async function viewWorkoutEditor(ctx, { workoutId, planId, day, clientId 
           </section>`;
       }
 
+      const modeChips = plan ? '' : html`
+        <label class="chip chip-check ${item.timeMode ? 'active' : ''}"><input type="checkbox" data-time-mode ${item.timeMode ? 'checked' : ''}> Na czas (s)</label>
+        <label class="chip chip-check ${item.runMode ? 'active' : ''}"><input type="checkbox" data-run-mode ${item.runMode ? 'checked' : ''}> Bieg</label>`;
+
+      // Bieg: odcinki z dystansem (km) i czasem (mm:ss), tempo liczone na bieżąco.
+      if (item.runMode) {
+        return html`
+          <section class="card wk-ex ${inSuperset ? 'in-superset' : ''} ${item.joined ? 'joined' : ''}" data-item="${i}">
+            ${inSuperset && !item.joined ? html`<p class="superset-head">${icons.link} Superseria – jedno po drugim</p>` : ''}
+            ${exerciseHead(item, i, plan, prev, info)}
+            <table class="sets run-log">
+              <thead><tr><th>Odc.</th><th>Plan</th><th>km</th><th>Czas</th><th>Tempo</th></tr></thead>
+              <tbody>${item.sets.map((set, n) => {
+                const target = item.targets[n];
+                const ghost = ghostOf(item, n);
+                return html`<tr class="${set.done ? 'done' : ''}" data-set="${n}">
+                  <td><button type="button" class="set-no set-toggle" data-done aria-pressed="${set.done}"
+                    aria-label="Odcinek ${n + 1} – ${set.done ? 'zrobiony, stuknij aby cofnąć' : 'stuknij aby odhaczyć'}">${n + 1}</button></td>
+                  <td class="set-target">${target ? targetText(target) || '–' : '–'}</td>
+                  <td><input data-k="distance" value="${set.distance}" inputmode="decimal" autocomplete="off" aria-label="Dystans w km, odcinek ${n + 1}"
+                    placeholder="${ghost.distance != null ? formatNumber(ghost.distance, 2) : ''}"></td>
+                  <td><input data-k="time" value="${set.time}" inputmode="text" autocomplete="off" aria-label="Czas mm:ss, odcinek ${n + 1}"
+                    placeholder="${ghost.clock ?? 'mm:ss'}"></td>
+                  <td class="run-pace" data-pace>${paceOf(set)}</td>
+                </tr>`;
+              })}</tbody>
+            </table>
+            <div class="wk-actions">
+              <button type="button" class="chip" data-add-set ${item.sets.length >= MAX_SETS ? 'disabled' : ''}>${icons.plus} Odcinek</button>
+              <button type="button" class="chip" data-remove-set ${item.sets.length <= 1 ? 'disabled' : ''}>− Odcinek</button>
+              <button type="button" class="chip ${item.showNote ? 'active' : ''}" data-toggle-note>${icons.edit} Notatka</button>
+              ${modeChips}
+            </div>
+            ${item.showNote ? html`<textarea data-note rows="2" placeholder="Uwagi do biegu (samopoczucie, tętno, trasa)…">${item.note}</textarea>` : ''}
+          </section>`;
+      }
+
       return html`
         <section class="card wk-ex ${inSuperset ? 'in-superset' : ''} ${item.joined ? 'joined' : ''}" data-item="${i}">
           ${inSuperset && !item.joined ? html`<p class="superset-head">${icons.link} Superseria – jedno po drugim</p>` : ''}
@@ -323,7 +383,7 @@ export async function viewWorkoutEditor(ctx, { workoutId, planId, day, clientId 
             <button type="button" class="chip" data-add-set ${item.sets.length >= MAX_SETS ? 'disabled' : ''}>${icons.plus} Seria</button>
             <button type="button" class="chip" data-remove-set ${item.sets.length <= 1 ? 'disabled' : ''}>− Seria</button>
             <button type="button" class="chip ${item.showNote ? 'active' : ''}" data-toggle-note>${icons.edit} Notatka</button>
-            ${!plan ? html`<label class="chip chip-check ${item.timeMode ? 'active' : ''}"><input type="checkbox" data-time-mode ${item.timeMode ? 'checked' : ''}> Na czas (s)</label>` : ''}
+            ${modeChips}
           </div>
           ${item.showNote ? html`<textarea data-note rows="2" placeholder="Uwagi do ćwiczenia (technika, odczucia)…">${item.note}</textarea>` : ''}
         </section>`;
@@ -337,6 +397,11 @@ export async function viewWorkoutEditor(ctx, { workoutId, planId, day, clientId 
   const confirmGhost = (item, n) => {
     const set = item.sets[n];
     const ghost = ghostOf(item, n);
+    if (item.runMode) {
+      if (set.distance === '' && ghost.distance != null) set.distance = inputNumber(ghost.distance);
+      if (set.time === '' && ghost.clock != null) set.time = ghost.clock;
+      return;
+    }
     if (set.weight === '' && ghost.weight != null) set.weight = inputNumber(ghost.weight);
     const amountKey = item.timeMode ? 'time' : 'reps';
     if (set[amountKey] === '' && ghost[amountKey] != null) set[amountKey] = String(ghost[amountKey]);
@@ -344,7 +409,12 @@ export async function viewWorkoutEditor(ctx, { workoutId, planId, day, clientId 
 
   container.addEventListener('input', (event) => {
     const { k } = event.target.dataset;
-    if (k) setOf(event.target)[k] = event.target.value;
+    if (k) {
+      const set = setOf(event.target);
+      set[k] = event.target.value;
+      const paceCell = event.target.closest('tr')?.querySelector('[data-pace]');
+      if (paceCell) paceCell.textContent = paceOf(set);
+    }
     if ('note' in event.target.dataset) itemOf(event.target).note = event.target.value;
     if ('blockResult' in event.target.dataset) itemOf(event.target).blockResult = event.target.value;
   });
@@ -354,6 +424,12 @@ export async function viewWorkoutEditor(ctx, { workoutId, planId, day, clientId 
     const { dataset } = event.target;
     if ('timeMode' in dataset) {
       item.timeMode = event.target.checked;
+      if (item.timeMode) item.runMode = false;
+    } else if ('runMode' in dataset) {
+      item.runMode = event.target.checked;
+      if (item.runMode) item.timeMode = false;
+      // Czas biegu wpisuje się jako mm:ss – sekundy z trybu „na czas” nie pasują.
+      item.sets.forEach((x) => { x.time = ''; });
     } else if ('join' in dataset) {
       item.joined = event.target.checked;
       if (item.joined) item.block = null;
@@ -393,7 +469,7 @@ export async function viewWorkoutEditor(ctx, { workoutId, planId, day, clientId 
     } else if ('toggleNote' in button.dataset) {
       item.showNote = !item.showNote;
     } else if ('removeItem' in button.dataset) {
-      if (item.sets.some((x) => x.weight || x.reps || x.time) && !confirm(`Usunąć „${item.name}” z tego treningu?`)) return;
+      if (item.sets.some((x) => x.weight || x.reps || x.time || x.distance) && !confirm(`Usunąć „${item.name}” z tego treningu?`)) return;
       const [removed] = items.splice(index, 1);
       // Usunięto pierwsze ćwiczenie grupy – następne dołączone przejmuje jego rolę (i format bloku).
       if (!removed.joined && items[index]?.joined) Object.assign(items[index], { joined: false, block: removed.block });
@@ -462,6 +538,18 @@ function collectSets(items) {
   items.forEach((item, position) => {
     const kept = [];
     item.sets.forEach((set) => {
+      if (item.runMode) {
+        const km = toNumber(set.distance);
+        const seconds = parseClock(set.time);
+        if (set.distance.trim() !== '' && (km == null || km < 0)) throw new Error(`${item.name}: niepoprawny dystans (w km, np. 5 albo 0,4).`);
+        if (Number.isNaN(seconds) || seconds < 0) throw new Error(`${item.name}: czas biegu wpisz jako mm:ss, np. 25:30.`);
+        if (km == null && seconds == null && !set.done) return;
+        kept.push({
+          weight: null, reps: null, duration_s: seconds, done: set.done,
+          ...(km != null ? { distance_m: Math.round(km * 1000 * 10) / 10 } : {}),
+        });
+        return;
+      }
       const weight = toNumber(set.weight);
       const reps = set.reps.trim() === '' ? null : Number(set.reps.trim());
       const time = set.time.trim() === '' ? null : Number(set.time.trim());
@@ -506,10 +594,11 @@ export async function viewWorkout(ctx, id) {
     if (set.note) group.note = set.note;
     if (set.block?.type) group.block = set.block;
     if (set.block_result) group.result = set.block_result;
-    if (set.weight != null || set.reps != null || set.duration_s != null || set.done) group.sets.push(set);
+    if (set.weight != null || set.reps != null || set.duration_s != null || set.distance_m != null || set.done) group.sets.push(set);
   }
   const volume = volumeOf(sets);
-  const setCount = sets.filter((s) => s.weight != null || s.reps != null || s.duration_s != null || s.done).length;
+  const setCount = sets.filter((s) => s.weight != null || s.reps != null || s.duration_s != null || s.distance_m != null || s.done).length;
+  const runKm = sets.reduce((sum, s) => sum + (Number(s.distance_m) || 0), 0) / 1000;
 
   ctx.renderShell({
     title: workout.day || 'Trening',
@@ -522,6 +611,7 @@ export async function viewWorkout(ctx, id) {
           <div><span class="stat">${groups.length}</span><span class="muted small">${plural(groups.length, 'ćwiczenie', 'ćwiczenia', 'ćwiczeń')}</span></div>
           <div><span class="stat">${setCount}</span><span class="muted small">${plural(setCount, 'seria', 'serie', 'serii')}</span></div>
           ${volume ? html`<div><span class="stat">${formatNumber(volume, 0)}</span><span class="muted small">kg objętości</span></div>` : ''}
+          ${runKm ? html`<div><span class="stat">${formatNumber(runKm, 2)}</span><span class="muted small">km biegu</span></div>` : ''}
         </div>
         ${workout.notes ? html`<p class="pre-line">${workout.notes}</p>` : ''}
       </section>

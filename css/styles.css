@@ -736,3 +736,13 @@ fieldset { margin: 0; min-width: 0; }
 .section-head { align-items: center; }
 .section-head h2 { margin: 0; }
 .block-sets th:nth-child(1), .block-sets td:nth-child(1) { width: 34%; text-align: left; }
+
+/* ============================================================
+   Moje treningi (trener dla siebie) i bieg
+   ============================================================ */
+.self-card { border: 1.5px solid var(--accent); background: var(--accent-soft); }
+.run-sets th:nth-child(2), .run-sets th:nth-child(3), .run-sets th:nth-child(4) { width: auto; }
+.run-sets th:nth-child(5), .run-sets td:nth-child(5) { width: 64px; }
+.run-log th:nth-child(2) { width: 26%; }
+.run-log input { padding: 9px 2px; }
+.run-pace { font-size: 0.78rem; color: var(--muted); text-align: center; white-space: nowrap; font-variant-numeric: tabular-nums; }

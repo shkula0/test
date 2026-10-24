@@ -5,8 +5,8 @@ import { viewLibrary, viewExercise, viewExerciseEditor, normalize, openExerciseF
 import { exerciseThumb, hasMedia } from './media.js';
 import { bodySection, describeMetricRow, metricSourceLabel, readMetricForm } from './measurements.js';
 import {
-  BLOCK_TYPES, blankTarget, blockParams, blockTitle, cleanTargets, defaultBlock, letterFor, planLabels, planTargets, targetText,
-  targetsSummary,
+  BLOCK_TYPES, blankTarget, blockParams, blockTitle, cleanTargets, defaultBlock, isRun, letterFor, planLabels, planTargets,
+  targetText, targetsSummary,
 } from './plan-utils.js';
 import { FREE_WORKOUT, formatSet, previousByExercise, viewWorkout, viewWorkoutEditor, workoutList } from './workouts.js';
 import { computeSummary, exerciseProgress, strengthEntries, summarySection } from './summary.js';
@@ -369,6 +369,11 @@ async function viewClients() {
     title: 'Podopieczni',
     nav: 'clients',
     body: html`
+      <a class="card list-item self-card" href="#/client/${me.id}">
+        <span class="avatar">${icons.logo}</span>
+        <span class="grow"><strong>Moje treningi</strong><br><span class="muted small">Twoje plany, treningi i postępy</span></span>
+        ${icons.chevron}
+      </a>
       ${inviteCard()}
       ${clients.length
         ? html`<ul class="list card">${clients.map((c) => html`
@@ -407,11 +412,11 @@ function bindInvite() {
 
 async function viewClient(clientId, tab) {
   const client = await api.getProfile(clientId);
-  if (!client || client.coach_id !== me.id) return viewNotFound();
+  if (!client || (client.coach_id !== me.id && client.id !== me.id)) return viewNotFound();
 
   const tabLink = (key, label) => html`<a href="#/client/${clientId}?tab=${key}" class="${tab === key ? 'active' : ''}">${label}</a>`;
   renderShell({
-    title: client.full_name,
+    title: client.id === me.id ? 'Moje treningi' : client.full_name,
     back: '/',
     nav: 'clients',
     body: html`
@@ -463,6 +468,10 @@ function planList(plans) {
 
 // Intensywność wybierana z listy 50–100% co 10%; inna, wcześniej wpisana wartość zostaje na liście.
 const EFFORTS = ['', '50%', '60%', '70%', '80%', '90%', '100%'];
+const ZONES = ['', 'Z1', 'Z2', 'Z3', 'Z4', 'Z5'];
+function zoneOptions(current) {
+  return current && !ZONES.includes(current) ? [...ZONES, current] : ZONES;
+}
 function effortOptions(current) {
   return current && !EFFORTS.includes(current) ? [...EFFORTS, current] : EFFORTS;
 }
@@ -473,7 +482,7 @@ async function viewPlanEditor(planId, newClientId) {
 
   const clientId = existing?.plan.client_id ?? newClientId;
   const client = await api.getProfile(clientId);
-  if (!client || client.coach_id !== me.id) return viewNotFound();
+  if (!client || (client.coach_id !== me.id && client.id !== me.id)) return viewNotFound();
 
   const [library, clientSets] = await Promise.all([api.listExercises(), api.listWorkoutSets(clientId)]);
   const FIELDS = ['name', 'rest', 'notes'];
@@ -481,7 +490,7 @@ async function viewPlanEditor(planId, newClientId) {
   const newDay = (name) => ({ id: `d${nextDayId++}`, name });
   const blank = (dayId) => ({
     dayId, name: '', rest: '', notes: '', exercise_id: null, superset: false, block: null,
-    targets: [blankTarget(), blankTarget(), blankTarget()], useTime: false,
+    targets: [blankTarget(), blankTarget(), blankTarget()], useTime: false, useRun: false,
   });
 
   // Dni to sekcje planu. Ćwiczenie bez nazwy dnia trafia do dnia nad nim
@@ -500,7 +509,8 @@ async function viewPlanEditor(planId, newClientId) {
       block: e.block?.type ? { ...e.block } : null,
       targets: planTargets(e),
     });
-    rows.at(-1).useTime = rows.at(-1).targets.some((t) => t.time.trim());
+    rows.at(-1).useRun = isRun(rows.at(-1).targets);
+    rows.at(-1).useTime = !rows.at(-1).useRun && rows.at(-1).targets.some((t) => t.time.trim());
   }
   if (!days.length) {
     days.push(newDay('Dzień A'));
@@ -591,7 +601,18 @@ async function viewPlanEditor(planId, newClientId) {
           <div class="combo-list" role="listbox" hidden></div>
           <p class="combo-hint small">${linkHint(r)}</p>
         </div>
-        <table class="sets plan-sets">
+        ${r.useRun ? html`<table class="sets plan-sets run-sets">
+          <thead><tr><th>Odc.</th><th>Dystans</th><th>Czas</th><th>Tempo<br><span class="muted">min/km</span></th><th>Strefa</th></tr></thead>
+          <tbody>${targetsShown.map((t, ti) => html`<tr data-target="${ti}">
+            <td><span class="set-no">${ti + 1}</span></td>
+            <td><input data-t="distance" value="${t.distance}" autocomplete="off" placeholder="5 km" aria-label="Dystans odcinek ${ti + 1}"></td>
+            <td><input data-t="time" value="${t.time}" autocomplete="off" placeholder="30 min" aria-label="Czas odcinek ${ti + 1}"></td>
+            <td><input data-t="pace" value="${t.pace}" autocomplete="off" placeholder="5:30" aria-label="Tempo odcinek ${ti + 1}"></td>
+            <td><select data-t="effort" aria-label="Strefa odcinek ${ti + 1}">
+              ${zoneOptions(t.effort).map((v) => html`<option value="${v}" ${v === t.effort ? 'selected' : ''}>${v || '–'}</option>`)}
+            </select></td>
+          </tr>`)}</tbody>
+        </table>` : html`<table class="sets plan-sets">
           <thead><tr><th>${block ? '' : 'Seria'}</th><th>${r.useTime ? 'Czas (s)' : block ? 'Powt. / runda' : 'Powt.'}</th><th>Intens.</th>
             <th>Ostatnio${last ? html`<br><span class="muted">${formatDate(last.date).slice(0, 5)}</span>` : ''}</th></tr></thead>
           <tbody>${targetsShown.map((t, ti) => html`<tr data-target="${ti}">
@@ -604,13 +625,14 @@ async function viewPlanEditor(planId, newClientId) {
             </select></td>
             <td class="set-target">${last?.sets[ti] ? formatSet(last.sets[ti]) : '–'}</td>
           </tr>`)}</tbody>
-        </table>
+        </table>`}
         <div class="wk-actions">
-          ${block ? '' : html`<button type="button" class="chip" data-add-target ${r.targets.length >= 12 ? 'disabled' : ''}>${icons.plus} Seria</button>
-          <button type="button" class="chip" data-remove-target ${r.targets.length <= 1 ? 'disabled' : ''}>− Seria</button>`}
+          ${block ? '' : html`<button type="button" class="chip" data-add-target ${r.targets.length >= 12 ? 'disabled' : ''}>${icons.plus} ${r.useRun ? 'Odcinek' : 'Seria'}</button>
+          <button type="button" class="chip" data-remove-target ${r.targets.length <= 1 ? 'disabled' : ''}>− ${r.useRun ? 'Odcinek' : 'Seria'}</button>`}
           <label class="chip chip-check ${r.useTime ? 'active' : ''}"><input type="checkbox" data-use-time ${r.useTime ? 'checked' : ''}> Na czas (s)</label>
+          <label class="chip chip-check ${r.useRun ? 'active' : ''}"><input type="checkbox" data-use-run ${r.useRun ? 'checked' : ''}> Bieg</label>
         </div>
-        <p class="muted small plan-sets-hint">Ciężar wynika z progresu – podopieczny zobaczy w treningu swój ostatni wynik.</p>
+        <p class="muted small plan-sets-hint">${r.useRun ? 'Dystans np. 5 km albo 400 m, czas np. 30 min albo 1:45. W treningu wpisuje się km i czas – tempo liczy się samo.' : 'Ciężar wynika z progresu – podopieczny zobaczy w treningu swój ostatni wynik.'}</p>
         <div class="grid-2">
           <label>Przerwa<input data-field="rest" value="${r.rest}" autocomplete="off" placeholder="np. 90 s"></label>
           <label>Wskazówki<input data-field="notes" value="${r.notes}" placeholder="np. tempo, technika" autocomplete="off"></label>
@@ -704,8 +726,18 @@ async function viewPlanEditor(planId, newClientId) {
     if ('superset' in event.target.dataset) {
       rows[fieldset.dataset.index].superset = event.target.checked;
       drawRows();
+    } else if ('useRun' in event.target.dataset) {
+      const row = rows[fieldset.dataset.index];
+      row.useRun = event.target.checked;
+      if (row.useRun) {
+        row.useTime = false;
+        // Bieg zwykle zaczyna się od jednego odcinka (bieg ciągły); interwały dodaje się przyciskiem.
+        if (row.targets.every((t) => !t.reps.trim() && !t.time.trim())) row.targets = [blankTarget()];
+      }
+      drawRows();
     } else if ('useTime' in event.target.dataset) {
       rows[fieldset.dataset.index].useTime = event.target.checked;
+      if (event.target.checked) rows[fieldset.dataset.index].useRun = false;
       drawRows();
     } else if ('blockType' in event.target.dataset) {
       rows[fieldset.dataset.index].block = defaultBlock(event.target.value);
@@ -812,7 +844,10 @@ async function viewPlanEditor(planId, newClientId) {
         const block = r.block ? Object.fromEntries(Object.entries(r.block).filter(([, v]) => v !== '' && v != null)) : null;
         // Ćwiczenie „Na czas” ma tylko czas, pozostałe tylko powtórzenia.
         // Plan nie zawiera ciężaru (wynika z progresu podopiecznego).
-        const targets = cleanTargets(r.targets).map((t) => ({ ...t, weight: '', ...(r.useTime ? { reps: '' } : { time: '' }) }));
+        const targets = cleanTargets(r.targets).map((t) => {
+          if (r.useRun) return { ...t, reps: '', weight: '', kind: 'run' };
+          return { ...t, weight: '', distance: '', pace: '', kind: '', ...(r.useTime ? { reps: '' } : { time: '' }) };
+        });
         // Starsze pola (serie / powtórzenia / ciężar) jako skrót – dla zgodności wstecz.
         const joined = (f) => {
           const values = [...new Set(targets.map((t) => t[f]))];

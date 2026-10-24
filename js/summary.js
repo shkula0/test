@@ -86,6 +86,9 @@ export function computeSummary({ workouts, workoutSets, strength, completions = 
   const tonnage = (from, to) => workoutSets
     .filter((s) => inRange(s.performed_on, from, to))
     .reduce((sum, s) => sum + (Number(s.weight) || 0) * (Number(s.reps) || 0), 0);
+  const km = (from, to) => workoutSets
+    .filter((s) => inRange(s.performed_on, from, to))
+    .reduce((sum, s) => sum + (Number(s.distance_m) || 0), 0) / 1000;
   const count = (from, to) => workouts.filter((w) => inRange(w.performed_on, from, to)).length;
 
   // Seria: ile kolejnych tygodni (do bieżącego) miało przynajmniej jeden trening albo rutynę.
@@ -123,8 +126,8 @@ export function computeSummary({ workouts, workoutSets, strength, completions = 
   const progress = exerciseProgress(strength).find((r) => r.sessions > 1 && r.kg > 0) ?? null;
 
   return {
-    week: { tonnage: tonnage(thisWeek, nextWeek), previous: tonnage(lastWeek, thisWeek), workouts: count(thisWeek, nextWeek), routines: routines(thisWeek, nextWeek) },
-    month: { tonnage: tonnage(thisMonth, addDays(today, 1)), previous: tonnage(lastMonth, thisMonth), workouts: count(thisMonth, addDays(today, 1)), routines: routines(thisMonth, addDays(today, 1)) },
+    week: { tonnage: tonnage(thisWeek, nextWeek), previous: tonnage(lastWeek, thisWeek), workouts: count(thisWeek, nextWeek), routines: routines(thisWeek, nextWeek), km: km(thisWeek, nextWeek) },
+    month: { tonnage: tonnage(thisMonth, addDays(today, 1)), previous: tonnage(lastMonth, thisMonth), workouts: count(thisMonth, addDays(today, 1)), routines: routines(thisMonth, addDays(today, 1)), km: km(thisMonth, addDays(today, 1)) },
     streak,
     records,
     progress,
@@ -211,6 +214,7 @@ export function summarySection(summary, { today = todayIso() } = {}) {
         <span class="stat-pair"><b>${week.workouts}</b> w tym tygodniu</span>
         <span class="stat-pair"><b>${month.workouts}</b> w tym miesiącu</span>
         ${month.routines ? html`<span class="stat-pair"><b>${month.routines}</b> ${plural(month.routines, 'rutyna', 'rutyny', 'rutyn')} w tym miesiącu</span>` : ''}
+        ${month.km ? html`<span class="stat-pair"><b>${formatNumber(month.km, 1)} km</b> biegu w tym miesiącu${week.km ? ` (${formatNumber(week.km, 1)} km w tym tygodniu)` : ''}</span>` : ''}
       </section>
       <section class="card stat-card">
         <span class="stat-title">🔥 Seria</span>

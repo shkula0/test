@@ -126,13 +126,13 @@ export async function exportExcel(clientId) {
   ], [34, 11, 12, 13, 12, 12, 11, 14]), 'Progres');
 
   XLSX.utils.book_append_sheet(wb, sheet([
-    ['Data', 'Plan', 'Dzień / trening', 'Oznaczenie', 'Ćwiczenie', 'Seria', 'Ciężar (kg)', 'Powtórzenia', 'Czas (s)', 'Zrobiona', 'Blok', 'Wynik bloku', 'Notatka'],
+    ['Data', 'Plan', 'Dzień / trening', 'Oznaczenie', 'Ćwiczenie', 'Seria', 'Ciężar (kg)', 'Powtórzenia', 'Czas (s)', 'Dystans (km)', 'Zrobiona', 'Blok', 'Wynik bloku', 'Notatka'],
     ...data.sets.map((s) => [
       date(s.performed_on), s.workout.plan_name || 'bez planu', s.workout.day, s.label, s.exercise_name, s.set_number,
-      num(s.weight), num(s.reps), num(s.duration_s), s.done ? 'tak' : 'nie',
+      num(s.weight), num(s.reps), num(s.duration_s), s.distance_m != null ? Number(s.distance_m) / 1000 : null, s.done ? 'tak' : 'nie',
       s.block?.type ? blockTitle(s.block).split(' – ')[0] : '', s.block_result ?? '', s.note,
     ]),
-  ], [12, 24, 18, 11, 32, 7, 12, 12, 10, 10, 18, 14, 30]), 'Treningi');
+  ], [12, 24, 18, 11, 32, 7, 12, 12, 10, 12, 10, 18, 14, 30]), 'Treningi');
 
   const metricColumns = METRICS.filter((m) => !m.computed);
   const bmiByDate = new Map(metricSeries(data.metrics, 'bmi').map((p) => [p.date, p.value]));
@@ -267,7 +267,7 @@ export async function exportPdf(clientId) {
   for (const s of data.sets) {
     const key = `${s.workout_id}|${s.position}`;
     if (groups.at(-1)?.key !== key) groups.push({ key, s, sets: [] });
-    if (s.weight != null || s.reps != null || s.duration_s != null || s.done) groups.at(-1).sets.push(s);
+    if (s.weight != null || s.reps != null || s.duration_s != null || s.distance_m != null || s.done) groups.at(-1).sets.push(s);
   }
   if (groups.length) {
     table({
