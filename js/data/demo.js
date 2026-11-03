@@ -228,6 +228,7 @@ export function createDemoBackend() {
     async deleteWorkout(id) {
       db.workouts = db.workouts.filter((w) => w.id !== id);
       db.workout_sets = db.workout_sets.filter((s) => s.workout_id !== id);
+      db.pass_uses = db.pass_uses.filter((u) => u.workout_id !== id);
       save();
     },
 
@@ -288,6 +289,45 @@ export function createDemoBackend() {
       save();
     },
 
+    async listPasses(clientId) {
+      const visible = (p) => p.coach_id === db.session || p.client_id === db.session;
+      return db.passes
+        .filter((p) => visible(p) && (!clientId || p.client_id === clientId))
+        .sort((a, b) => b.starts_on.localeCompare(a.starts_on))
+        .map((p) => ({ ...p, uses: db.pass_uses.filter((u) => u.pass_id === p.id) }));
+    },
+
+    async savePass(pass) {
+      const fields = {
+        client_id: pass.client_id, sessions: pass.sessions, starts_on: pass.starts_on, ends_on: pass.ends_on,
+        price: pass.price, paid: pass.paid, notes: pass.notes,
+      };
+      let saved = pass.id && db.passes.find((p) => p.id === pass.id);
+      if (saved) Object.assign(saved, fields);
+      else {
+        saved = { ...fields, id: uid(), coach_id: db.session, created_at: now() };
+        db.passes.push(saved);
+      }
+      save();
+      return saved.id;
+    },
+
+    async deletePass(id) {
+      db.passes = db.passes.filter((p) => p.id !== id);
+      db.pass_uses = db.pass_uses.filter((u) => u.pass_id !== id);
+      save();
+    },
+
+    async addPassUse(passId, usedOn, workoutId = null) {
+      db.pass_uses.push({ id: uid(), pass_id: passId, used_on: usedOn, workout_id: workoutId, created_at: now() });
+      save();
+    },
+
+    async deletePassUse(id) {
+      db.pass_uses = db.pass_uses.filter((u) => u.id !== id);
+      save();
+    },
+
     async listMetrics(clientId) {
       return db.body_metrics.filter((m) => m.client_id === clientId).sort(byDate('measured_on'));
     },
@@ -332,6 +372,8 @@ function load() {
       data.workouts ??= [];
       data.routines ??= [];
       data.routine_completions ??= [];
+      data.passes ??= [];
+      data.pass_uses ??= [];
       data.workout_sets ??= [];
       return data;
     }
@@ -492,6 +534,17 @@ function seed() {
     { id: uid(), routine_id: hips.id, client_id: anna.id, completed_on: daysAgo(2), created_at: now() },
   ];
 
+  // Karnet Anny: 8 treningów, dwa odbite z zapisanych treningów i jeden ręcznie.
+  const annaPass = {
+    id: uid(), coach_id: coach.id, client_id: anna.id, sessions: 8, starts_on: daysAgo(15), ends_on: daysAgo(-15),
+    price: 600, paid: true, notes: '', created_at: now(),
+  };
+  const passes = [annaPass];
+  const pass_uses = [
+    ...workouts.map((w) => ({ id: uid(), pass_id: annaPass.id, used_on: w.performed_on, workout_id: w.id, created_at: now() })),
+    { id: uid(), pass_id: annaPass.id, used_on: daysAgo(3), workout_id: null, created_at: now() },
+  ];
+
   return {
     session: null,
     profiles: [coach, anna, piotr],
@@ -501,6 +554,8 @@ function seed() {
     workout_sets,
     routines,
     routine_completions,
+    passes,
+    pass_uses,
     plan_exercises: exercises,
     body_metrics,
     lift_records,

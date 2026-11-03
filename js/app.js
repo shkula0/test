@@ -8,6 +8,7 @@ import {
   BLOCK_TYPES, blankTarget, blockParams, blockTitle, cleanTargets, defaultBlock, isRun, letterFor, planLabels, planTargets,
   targetText, targetsSummary,
 } from './plan-utils.js';
+import { currentPass, loadPasses, passCard, viewClientPasses, viewPassEditor, viewPasses } from './passes.js';
 import {
   FREE_WORKOUT, discardDraft, draftBanner, formatSet, previousByExercise, recentWorkouts, recentWorkoutsHtml, viewWorkout,
   viewWorkoutEditor, workoutList,
@@ -91,6 +92,10 @@ async function router() {
     if (section === 'exercise' && id === 'media' && isCoach) return openExerciseForMedia(ctx, params);
     if (section === 'exercise' && id && action === 'edit' && isCoach) return viewExerciseEditor(ctx, id, params);
     if (section === 'exercise' && id) return viewExercise(ctx, id, params);
+    if (section === 'passes' && !id && isCoach) return viewPasses(ctx);
+    if (section === 'passes' && id && action === 'new' && isCoach) return viewPassEditor(ctx, id, null);
+    if (section === 'passes' && id && action === 'edit' && isCoach) return viewPassEditor(ctx, id, params.get('id'));
+    if (section === 'passes' && id && isCoach) return viewClientPasses(ctx, id);
     if (section === 'routines') return viewRoutines(ctx);
     if (section === 'routine' && id === 'new' && isCoach) return viewRoutineEditor(ctx, null);
     if (section === 'routine' && id && action === 'edit' && isCoach) return viewRoutineEditor(ctx, id);
@@ -145,7 +150,7 @@ function renderShell({ title, back, body, nav }) {
 function navBar(active) {
   const items = me.role === 'coach'
     ? [['clients', '/', 'Podopieczni', icons.users], ['library', '/exercises', 'Ćwiczenia', icons.logo],
-      ['routines', '/routines', 'Rutyny', icons.play], ['account', '/account', 'Konto', icons.user]]
+      ['routines', '/routines', 'Rutyny', icons.play], ['passes', '/passes', 'Karnety', icons.ticket], ['account', '/account', 'Konto', icons.user]]
     : [['plans', '/', 'Plany', icons.list], ['routines', '/routines', 'Rutyny', icons.play],
       ['progress', '/progress', 'Postępy', icons.chart], ['account', '/account', 'Konto', icons.user]];
   return html`<nav class="tabbar">
@@ -437,7 +442,13 @@ async function viewClient(clientId, tab) {
 
   const container = $('#tab-content');
   if (tab === 'summary') {
-    container.innerHTML = await clientSummary(clientId);
+    const [summary, passes] = await Promise.all([clientSummary(clientId), client.id !== me.id ? loadPasses(clientId) : null]);
+    const current = passes ? currentPass(passes) : null;
+    container.innerHTML = html`
+      ${current ? passCard(current, { manageHref: `/passes/${clientId}`, compact: true })
+        : passes ? html`<a class="card list-item pass-empty" href="#/passes/${clientId}/new">${icons.ticket}
+          <span class="grow">Brak karnetu – <strong>dodaj karnet</strong></span>${icons.chevron}</a>` : ''}
+      ${raw(String(summary))}`;
   } else if (tab === 'progress') {
     await mountProgress(container, clientId);
   } else if (tab === 'workouts') {
@@ -1010,7 +1021,9 @@ async function viewMyPlans() {
         <a class="btn btn-small" href="#/workout/new">${icons.plus} ${FREE_WORKOUT}</a></div>
       <div id="my-workouts"></div>`,
   });
-  $('#my-summary').innerHTML = await clientSummary(me.id);
+  const [summary, passes] = await Promise.all([clientSummary(me.id), loadPasses(me.id)]);
+  const current = passes ? currentPass(passes) : null;
+  $('#my-summary').innerHTML = html`${current ? passCard(current) : ''}${raw(String(summary))}`;
   $('#my-workouts').innerHTML = await workoutsSection(me.id, 'Nie masz jeszcze zapisanych treningów. Otwórz plan i kliknij „Rozpocznij trening”.', 10);
 }
 

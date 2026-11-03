@@ -5,6 +5,7 @@ import { api } from './data/index.js';
 import { icons } from './icons.js';
 import { normalize, resolveExercise } from './library.js';
 import { exerciseThumb } from './media.js';
+import { currentPass, loadPasses } from './passes.js';
 import {
   BLOCK_TYPES, blockParams, blockResultLabel, blockResultPlaceholder, blockTitle, defaultBlock, formatClock, formatPace,
   isRun, isTimeBased, letterFor, parseClock, planLabels, planTargets, targetText,
@@ -238,10 +239,15 @@ export async function viewWorkoutEditor(ctx, { workoutId, planId, day, clientId 
     performed_on: todayIso(),
     notes: '',
   });
-  const [library, allSets, client] = await Promise.all([
+  const coachForClient = me.role === 'coach' && workout.client_id !== me.id;
+  const [library, allSets, client, passes] = await Promise.all([
     api.listExercises(), api.listWorkoutSets(workout.client_id),
     workout.client_id !== me.id ? api.getProfile(workout.client_id).catch(() => null) : null,
+    coachForClient && !existing ? loadPasses(workout.client_id) : null,
   ]);
+  // Nowy trening podopiecznego zapisany przez trenera można od razu odbić z karnetu.
+  const pass = passes ? currentPass(passes) : null;
+  const passOption = pass && pass.status.state !== 'expired' ? pass : null;
   const recent = recentWorkouts(allSets, { excludeId: existing?.workout.id });
 
   // Wersja robocza tego treningu (zapisywana w telefonie przy każdej zmianie).
@@ -393,6 +399,11 @@ export async function viewWorkoutEditor(ctx, { workoutId, planId, day, clientId 
       <section class="card">
         <label>Notatka do treningu<textarea id="wk-notes" rows="2" placeholder="Samopoczucie, uwagi…">${workout.notes}</textarea></label>
       </section>
+      ${passOption ? html`<label class="card pass-option">
+        <input type="checkbox" id="wk-use-pass" ${passOption.status.state === 'active' ? 'checked' : ''}>
+        <span class="grow"><strong>Odbij z karnetu</strong><br>
+          <span class="muted small">Zostało ${passOption.status.left} z ${passOption.pass.sessions}${passOption.status.state === 'used' ? ' – karnet wykorzystany' : ''}</span></span>
+      </label>` : ''}
       ${!existing ? html`<button type="button" class="btn btn-outline danger btn-block" id="wk-discard">${icons.trash} Odrzuć ten trening</button>` : ''}
       <div class="sticky-actions"><button class="btn btn-block" id="wk-save">${icons.check} Zapisz trening</button></div>`,
   });
@@ -743,6 +754,15 @@ export async function viewWorkoutEditor(ctx, { workoutId, planId, day, clientId 
         ...workout, id: existing?.workout.id, day: title, performed_on: performedOn, notes: $('#wk-notes').value.trim(),
       }, sets);
       writeDraft(draftKey, null);
+      if (passOption && $('#wk-use-pass')?.checked) {
+        try {
+          await api.addPassUse(passOption.pass.id, performedOn, id);
+          toast(`Trening zapisany i odbity z karnetu – zostało ${passOption.status.left - 1} z ${passOption.pass.sessions}`, 'success');
+        } catch (error) {
+          toast(`Trening zapisany, ale nie udało się odbić karnetu: ${error.message}`, 'error');
+        }
+        return ctx.go(`/workout/${id}`);
+      }
       toast('Trening zapisany', 'success');
       ctx.go(`/workout/${id}`);
     } catch (error) {

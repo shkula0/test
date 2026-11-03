@@ -236,6 +236,36 @@ export function createSupabaseBackend({ supabaseUrl, supabaseAnonKey }) {
       await run(sb.from('routine_completions').delete().eq('id', id));
     },
 
+    // Karnety z odbitymi treningami: jednego podopiecznego albo (bez clientId) wszystkie widoczne.
+    async listPasses(clientId) {
+      let query = sb.from('passes').select('*, uses:pass_uses(*)').order('starts_on', { ascending: false });
+      if (clientId) query = query.eq('client_id', clientId);
+      return run(query);
+    },
+
+    async savePass(pass) {
+      const fields = {
+        client_id: pass.client_id, sessions: pass.sessions, starts_on: pass.starts_on, ends_on: pass.ends_on,
+        price: pass.price, paid: pass.paid, notes: pass.notes,
+      };
+      const saved = pass.id
+        ? await run(sb.from('passes').update(fields).eq('id', pass.id).select().single())
+        : await run(sb.from('passes').insert(fields).select().single());
+      return saved.id;
+    },
+
+    async deletePass(id) {
+      await run(sb.from('passes').delete().eq('id', id));
+    },
+
+    async addPassUse(passId, usedOn, workoutId = null) {
+      await run(sb.from('pass_uses').insert({ pass_id: passId, used_on: usedOn, workout_id: workoutId }));
+    },
+
+    async deletePassUse(id) {
+      await run(sb.from('pass_uses').delete().eq('id', id));
+    },
+
     async listMetrics(clientId) {
       return run(sb.from('body_metrics').select('*').eq('client_id', clientId)
         .order('measured_on').order('created_at'));
@@ -279,6 +309,9 @@ function translateError(message) {
   if (/exceeded the maximum allowed size|Payload too large/i.test(message)) return 'Plik jest za duży (maks. 50 MB).';
   if (message.startsWith('Password should be')) return 'Hasło musi mieć co najmniej 6 znaków.';
   if (/rate limit|only request this after/i.test(message)) return 'Za dużo prób – odczekaj chwilę i spróbuj ponownie.';
+  if (/pass(es|_uses)/.test(message) && /schema cache|does not exist/.test(message)) {
+    return 'Karnety wymagają aktualizacji bazy – uruchom w Supabase plik 010_karnety.sql.';
+  }
   if (/distance_m/.test(message)) return 'Zapis biegu wymaga aktualizacji bazy – uruchom w Supabase plik 009_wlasne_treningi_i_bieg.sql.';
   if (/different from the old password/i.test(message)) return 'Nowe hasło musi być inne niż poprzednie.';
   return message;
