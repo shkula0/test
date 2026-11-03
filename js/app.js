@@ -8,6 +8,7 @@ import {
   BLOCK_TYPES, blankTarget, blockParams, blockTitle, cleanTargets, defaultBlock, isRun, letterFor, planLabels, planTargets,
   targetText, targetsSummary,
 } from './plan-utils.js';
+import { bindMessageForm, bindPush, disablePush, messageForm, notify, pushPrompt, pushSettingsCard } from './push.js';
 import {
   bindPassAlerts, currentPass, loadPasses, passAlerts, passAlertsHtml, passCard, viewClientPasses, viewPassEditor, viewPasses,
 } from './passes.js';
@@ -98,6 +99,7 @@ async function router() {
     if (section === 'passes' && id && action === 'new' && isCoach) return viewPassEditor(ctx, id, null);
     if (section === 'passes' && id && action === 'edit' && isCoach) return viewPassEditor(ctx, id, params.get('id'));
     if (section === 'passes' && id && isCoach) return viewClientPasses(ctx, id);
+    if (section === 'message' && isCoach) return viewMessage(id ?? null);
     if (section === 'routines') return viewRoutines(ctx);
     if (section === 'routine' && id === 'new' && isCoach) return viewRoutineEditor(ctx, null);
     if (section === 'routine' && id && action === 'edit' && isCoach) return viewRoutineEditor(ctx, id);
@@ -382,11 +384,12 @@ async function submitting(form, action) {
 // ============================================================
 
 async function viewClients() {
-  const [clients, passes] = await Promise.all([api.listClients(), loadPasses()]);
+  const [clients, passes, prompt] = await Promise.all([api.listClients(), loadPasses(), pushPrompt()]);
   renderShell({
     title: 'Podopieczni',
     nav: 'clients',
     body: html`
+      ${prompt}
       ${passes ? passAlertsHtml(passAlerts(clients, passes)) : ''}
       <a class="card list-item self-card" href="#/client/${me.id}">
         <span class="avatar">${icons.logo}</span>
@@ -401,10 +404,26 @@ async function viewClients() {
               <span class="grow">${c.full_name}</span>${icons.chevron}
             </a></li>`)}</ul>`
         : emptyState('Nie masz jeszcze podopiecznych. Wyślij im link z zaproszeniem – po rejestracji pojawią się tutaj.')}
+      ${clients.length && api.mode !== 'demo' ? html`<a class="btn btn-outline btn-block" href="#/message">${icons.bell} Wiadomość do wszystkich</a>` : ''}
     `,
   });
   bindInvite();
+  bindPush($('.content'), me, viewClients);
   if (passes) bindPassAlerts($('.content'), passes, viewClients);
+}
+
+// Wiadomość od trenera jako powiadomienie: do jednej osoby albo do wszystkich podopiecznych.
+async function viewMessage(clientId) {
+  const client = clientId ? await api.getProfile(clientId) : null;
+  if (clientId && (!client || client.coach_id !== me.id)) return viewNotFound();
+  renderShell({
+    title: 'Wiadomość',
+    back: clientId ? `/client/${clientId}` : '/',
+    nav: 'clients',
+    body: html`${messageForm(client?.full_name)}
+      <p class="muted small">Przyjdzie jako powiadomienie na telefony osób, które włączyły powiadomienia (Konto → Powiadomienia).</p>`,
+  });
+  bindMessageForm(clientId ? [clientId] : 'clients', me.full_name);
 }
 
 function inviteCard() {
@@ -452,6 +471,7 @@ async function viewClient(clientId, tab) {
       ${current ? passCard(current, { manageHref: `/passes/${clientId}`, compact: true })
         : passes ? html`<a class="card list-item pass-empty" href="#/passes/${clientId}/new">${icons.ticket}
           <span class="grow">Brak karnetu – <strong>dodaj karnet</strong></span>${icons.chevron}</a>` : ''}
+      ${client.id !== me.id && api.mode !== 'demo' ? html`<a class="btn btn-outline btn-block" href="#/message/${clientId}">${icons.bell} Wyślij wiadomość</a>` : ''}
       ${raw(String(summary))}`;
   } else if (tab === 'progress') {
     await mountProgress(container, clientId);
@@ -907,6 +927,9 @@ async function viewPlanEditor(planId, newClientId) {
     await submitting(event.target, async () => {
       const id = await api.savePlan({ id: planId, client_id: clientId, name: planName.trim(), notes: planNotes.trim() }, exercises);
       toast('Plan zapisany', 'success');
+      if (clientId !== me.id) {
+        notify([clientId], planId ? 'Trener zaktualizował Twój plan' : 'Masz nowy plan treningowy', planName.trim(), `#/plan/${id}`);
+      }
       go(`/plan/${id}`);
     });
   });
@@ -1009,15 +1032,17 @@ async function viewPlan(planId) {
 // ============================================================
 
 async function viewMyPlans() {
-  const [plans, coach] = await Promise.all([
+  const [plans, coach, prompt] = await Promise.all([
     api.listPlans(me.id),
     me.coach_id ? api.getProfile(me.coach_id) : null,
+    pushPrompt(),
   ]);
   renderShell({
     title: 'Moje plany',
     nav: 'plans',
     body: html`
       <p class="muted">Cześć, ${me.full_name.split(' ')[0]}!${coach ? html` Twój trener: <strong>${coach.full_name}</strong>.` : ''}</p>
+      ${prompt}
       <div id="my-summary" class="stack"></div>
       <h2>Twoje plany</h2>
       ${plans.length ? planList(plans) : emptyState('Trener nie przygotował jeszcze dla Ciebie planu. Zajrzyj tu wkrótce!')}
@@ -1025,6 +1050,7 @@ async function viewMyPlans() {
         <a class="btn btn-small" href="#/workout/new">${icons.plus} ${FREE_WORKOUT}</a></div>
       <div id="my-workouts"></div>`,
   });
+  bindPush($('.content'), me, viewMyPlans);
   const [summary, passes] = await Promise.all([clientSummary(me.id), loadPasses(me.id)]);
   const current = passes ? currentPass(passes) : null;
   $('#my-summary').innerHTML = html`${current ? passCard(current) : ''}${raw(String(summary))}`;
@@ -1251,6 +1277,8 @@ async function viewAccount() {
 
       ${me.role === 'coach' ? inviteCard() : ''}
 
+      ${await pushSettingsCard(me.role)}
+
       ${standalone ? '' : html`<section class="card">
         <h2>Zainstaluj aplikację</h2>
         ${isSamsung
@@ -1272,6 +1300,7 @@ async function viewAccount() {
   });
 
   bindInvite();
+  bindPush($('.content'), me, viewAccount);
   $('#install')?.addEventListener('click', async () => {
     installPrompt.prompt();
     await installPrompt.userChoice;
@@ -1279,6 +1308,8 @@ async function viewAccount() {
     viewAccount();
   });
   $('#logout').addEventListener('click', async () => {
+    // Po wylogowaniu ten telefon nie dostaje już powiadomień poprzedniego konta.
+    await disablePush().catch(() => {});
     await api.signOut();
     go('/');
   });

@@ -5,7 +5,8 @@ import { api } from './data/index.js';
 import { icons } from './icons.js';
 import { normalize, resolveExercise } from './library.js';
 import { exerciseThumb } from './media.js';
-import { afterUseMessage, currentPass, loadPasses } from './passes.js';
+import { afterUseMessage, currentPass, loadPasses, notifyAfterUse } from './passes.js';
+import { notify } from './push.js';
 import {
   BLOCK_TYPES, blockParams, blockResultLabel, blockResultPlaceholder, blockTitle, defaultBlock, formatClock, formatPace,
   isRun, isTimeBased, letterFor, parseClock, planLabels, planTargets, targetText,
@@ -754,9 +755,14 @@ export async function viewWorkoutEditor(ctx, { workoutId, planId, day, clientId 
         ...workout, id: existing?.workout.id, day: title, performed_on: performedOn, notes: $('#wk-notes').value.trim(),
       }, sets);
       writeDraft(draftKey, null);
+      // Podopieczny zapisał nowy trening – trener dostaje powiadomienie.
+      if (!existing && me.role === 'client' && me.coach_id) {
+        notify([me.coach_id], `${me.full_name} zapisał(a) trening`, `${title} · ${formatDate(performedOn)}`, `#/workout/${id}`);
+      }
       if (passOption && $('#wk-use-pass')?.checked) {
         try {
           await api.addPassUse(passOption.pass.id, performedOn, id);
+          notifyAfterUse(passOption);
           toast(`Trening zapisany. ${afterUseMessage(passOption)}`, passOption.status.left <= 2 ? 'error' : 'success');
         } catch (error) {
           toast(`Trening zapisany, ale nie udało się odbić karnetu: ${error.message}`, 'error');

@@ -2,6 +2,7 @@
 
 import { api } from './data/index.js';
 import { icons } from './icons.js';
+import { notify } from './push.js';
 import { $, html, toast, todayIso, formatDate, formatNumber, initials, toNumber } from './ui.js';
 
 export const PASS_TYPES = [4, 8, 12];
@@ -90,11 +91,19 @@ export function afterUseMessage(current) {
   return `Odbito trening – zostało ${left} z ${current.pass.sessions}`;
 }
 
+// Powiadomienie dla podopiecznego, gdy po odbiciu został ostatni trening albo karnet się skończył.
+export function notifyAfterUse(current) {
+  const left = current.status.left - 1;
+  if (left === 1) notify([current.pass.client_id], 'Został Ci ostatni trening w karnecie', 'Porozmawiaj z trenerem o kolejnym karnecie.');
+  if (left === 0 && !current.queued) notify([current.pass.client_id], 'Karnet wykorzystany', 'Wszystkie treningi z karnetu zostały wykorzystane – czas na nowy karnet.');
+}
+
 // Odbicie treningu z karnetu; gdy karnet jest wykorzystany – najpierw pytamy.
 async function usePass(current) {
   if (current.status.left <= 0 && !confirm('Wszystkie treningi z karnetu są już wykorzystane. Odbić ponad karnet?')) return false;
   await api.addPassUse(current.pass.id, todayIso());
   toast(afterUseMessage(current), current.status.left <= 2 ? 'error' : 'success');
+  notifyAfterUse(current);
   return true;
 }
 
@@ -395,6 +404,11 @@ export async function viewPassEditor(ctx, clientId, passId) {
       });
       // Treningi zrobione przed założeniem karnetu w aplikacji.
       for (let i = 0; i < alreadyUsed; i += 1) await api.addPassUse(id, startsOn);
+      if (!existing && clientId !== ctx.me.id) {
+        const amount = price ? ` ${formatNumber(price, 2)} zł` : '';
+        notify([clientId], `Nowy karnet: ${trainings(count)}`,
+          $('#pass-paid').checked ? 'Miłych treningów! 💪' : `Pamiętaj o wpłacie${amount} za karnet.`);
+      }
       toast('Karnet zapisany', 'success');
       ctx.go(`/passes/${clientId}`);
     } catch (error) {

@@ -5,6 +5,7 @@ import { api } from './data/index.js';
 import { icons } from './icons.js';
 import { normalize, resolveExercise } from './library.js';
 import { exerciseMedia, exerciseThumb, hasMedia, isHttpUrl } from './media.js';
+import { notify } from './push.js';
 import { $, html, toast, formatDate, formData, todayIso } from './ui.js';
 
 export const ROUTINE_CATEGORIES = ['Mobilność', 'Postawa', 'Rozciąganie', 'Kondycja', 'Core', 'Regeneracja', 'Inne'];
@@ -157,6 +158,7 @@ export async function viewRoutine(ctx, id) {
       } else {
         await api.addCompletion(routine.id, me.id, today);
         toast('Super, zrobione! 💪', 'success');
+        if (me.coach_id) notify([me.coach_id], `${me.full_name} zrobił(a) rutynę`, routine.title, `#/client/${me.id}`);
       }
       viewRoutine(ctx, id);
     } catch (error) {

@@ -28,6 +28,15 @@ export function createSupabaseBackend({ supabaseUrl, supabaseAnonKey }) {
     };
   }
 
+  async function invokePush(body) {
+    const { data, error } = await sb.functions.invoke('push', { body });
+    if (error) {
+      const notDeployed = /404|not found|Failed to send/i.test(error.message);
+      throw new Error(notDeployed ? 'Funkcja „push” nie jest jeszcze wdrożona w Supabase (Edge Functions).' : error.message);
+    }
+    return data;
+  }
+
   return {
     mode: 'supabase',
 
@@ -266,6 +275,25 @@ export function createSupabaseBackend({ supabaseUrl, supabaseAnonKey }) {
       await run(sb.from('pass_uses').delete().eq('id', id));
     },
 
+    // Zgoda na powiadomienia z tego urządzenia (subskrypcja Web Push).
+    async savePushSubscription({ endpoint, keys }) {
+      await run(sb.rpc('save_push_subscription', { p_endpoint: endpoint, p_p256dh: keys.p256dh, p_auth: keys.auth }));
+    },
+
+    async deletePushSubscription(endpoint) {
+      await run(sb.from('push_subscriptions').delete().eq('endpoint', endpoint));
+    },
+
+    // Wysyłka przez funkcję „push” w Supabase (Edge Functions).
+    async sendPush(message) {
+      return invokePush(message);
+    },
+
+    // Klucz publiczny powiadomień – funkcja „push” tworzy go przy pierwszym użyciu.
+    async pushPublicKey() {
+      return (await invokePush({ action: 'public-key' })).publicKey;
+    },
+
     async listMetrics(clientId) {
       return run(sb.from('body_metrics').select('*').eq('client_id', clientId)
         .order('measured_on').order('created_at'));
@@ -312,6 +340,7 @@ function translateError(message) {
   if (/pass(es|_uses)/.test(message) && /schema cache|does not exist/.test(message)) {
     return 'Karnety wymagają aktualizacji bazy – uruchom w Supabase plik 010_karnety.sql.';
   }
+  if (/push_subscriptions|save_push_subscription/.test(message)) return 'Powiadomienia wymagają aktualizacji bazy – uruchom w Supabase plik 011_powiadomienia.sql.';
   if (/distance_m/.test(message)) return 'Zapis biegu wymaga aktualizacji bazy – uruchom w Supabase plik 009_wlasne_treningi_i_bieg.sql.';
   if (/different from the old password/i.test(message)) return 'Nowe hasło musi być inne niż poprzednie.';
   return message;

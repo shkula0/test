@@ -328,6 +328,16 @@ export function createDemoBackend() {
       save();
     },
 
+    // W trybie demo powiadomienia nie są wysyłane.
+    async savePushSubscription() {},
+    async deletePushSubscription() {},
+    async sendPush() {
+      return { sent: 0 };
+    },
+    async pushPublicKey() {
+      return '';
+    },
+
     async listMetrics(clientId) {
       return db.body_metrics.filter((m) => m.client_id === clientId).sort(byDate('measured_on'));
     },
