@@ -151,6 +151,18 @@ function setsLine(sets) {
   return parts.map((p) => (p.count > 1 ? `${p.count} × ${p.text}` : p.text)).join(', ');
 }
 
+// Ostatnia niepusta notatka przy każdym ćwiczeniu (po nazwie), z datą treningu.
+function lastNotes(allSets, excludeId) {
+  const notes = new Map();
+  const ordered = allSets.filter((x) => x.note?.trim() && x.workout_id !== excludeId)
+    .sort((a, b) => b.performed_on.localeCompare(a.performed_on) || (b.workout_created_at ?? '').localeCompare(a.workout_created_at ?? ''));
+  for (const set of ordered) {
+    const key = normalize(set.exercise_name);
+    if (!notes.has(key)) notes.set(key, { note: set.note.trim(), date: set.performed_on });
+  }
+  return notes;
+}
+
 // Treningi od poniedziałku poprzedniego tygodnia, najnowsze na górze.
 export function recentWorkouts(allSets, { excludeId } = {}) {
   const from = previousWeekStart();
@@ -163,8 +175,9 @@ export function recentWorkouts(allSets, { excludeId } = {}) {
       });
     }
     const exercises = byWorkout.get(set.workout_id).exercises;
-    if (!exercises.has(set.position)) exercises.set(set.position, { name: set.exercise_name, label: set.label, sets: [], result: '' });
+    if (!exercises.has(set.position)) exercises.set(set.position, { name: set.exercise_name, label: set.label, sets: [], result: '', note: '' });
     const ex = exercises.get(set.position);
+    if (set.note) ex.note = set.note;
     if (set.block_result) ex.result = set.block_result;
     if (hasResult(set)) ex.sets.push(set);
   }
@@ -186,7 +199,8 @@ export function recentWorkoutsHtml(workouts, { addable = false } = {}) {
       <ul class="recent-list">${w.exercises.map((ex) => html`<li>
         <span class="grow">${ex.label ? html`<span class="muted">${ex.label}</span> ` : ''}<strong>${ex.name}</strong>
           ${ex.sets.length ? html`<br><span class="small">${setsLine(ex.sets)}</span>` : ''}
-          ${ex.result ? html`<br><span class="small">Wynik: ${ex.result}</span>` : ''}</span>
+          ${ex.result ? html`<br><span class="small">Wynik: ${ex.result}</span>` : ''}
+          ${ex.note ? html`<br><span class="small muted">${icons.edit} ${ex.note}</span>` : ''}</span>
         ${addable ? html`<button type="button" class="icon-btn" data-copy-exercise="${ex.name}" aria-label="Dodaj ${ex.name} do treningu">${icons.plus}</button>` : ''}
       </li>`)}</ul>
     </div>`)}`;
@@ -237,6 +251,9 @@ export async function viewWorkoutEditor(ctx, { workoutId, planId, day, clientId 
   if (draft) Object.assign(workout, { performed_on: draft.performedOn, notes: draft.notes, day: draft.title ?? workout.day });
   // „Poprzednio”: najpierw ten sam plan i dzień, a jeśli tam ćwiczenia nie było – ostatni dowolny trening z nim.
   const previous = previousByExercise(allSets, { planId: workout.plan_id, day: workout.day, excludeId: existing?.workout.id });
+  // Notatka „przyklejona” do ćwiczenia tej osoby: ostatnia wpisana, dopóki nie zostanie nadpisana nową.
+  const stickyNotes = lastNotes(allSets, existing?.workout.id);
+  const stickyNote = (name) => stickyNotes.get(normalize(name)) ?? null;
 
   // Ćwiczenia z planu (dla danego dnia) – do celów i do nowego treningu.
   const planExercises = planData?.exercises ?? [];
@@ -286,7 +303,8 @@ export async function viewWorkoutEditor(ctx, { workoutId, planId, day, clientId 
       const prev = previous.get(normalize(ex.name));
       const count = planTargets(ex).length || prev?.sets.length || 1;
       return {
-        name: ex.name, exercise_id: ex.exercise_id ?? null, label: label.label, joined: label.joined, note: '',
+        name: ex.name, exercise_id: ex.exercise_id ?? null, label: label.label, joined: label.joined,
+        note: stickyNote(ex.name)?.note ?? '', carriedNote: stickyNote(ex.name)?.note ?? '',
         sets: Array.from({ length: count }, blankSet), block: ex.block?.type ? ex.block : null, blockResult: '',
       };
     });
@@ -414,6 +432,15 @@ export async function viewWorkoutEditor(ctx, { workoutId, planId, day, clientId 
       ${!plan ? html`<button type="button" class="icon-btn danger" data-remove-item aria-label="Usuń ćwiczenie z treningu">${icons.trash}</button>` : ''}
     </div>`;
 
+  // Notatka do ćwiczenia; przeniesiona z wcześniejszego treningu ma dopisek, skąd pochodzi.
+  const noteField = (item, placeholder) => {
+    const sticky = stickyNote(item.name);
+    const carried = !existing && sticky && item.note.trim() === sticky.note.trim();
+    return html`<label class="wk-note">Notatka do ćwiczenia
+      <textarea data-note rows="2" placeholder="${placeholder}">${item.note}</textarea></label>
+      ${carried ? html`<p class="muted small note-origin">Z treningu ${formatDate(sticky.date)} – zostaje przy tym ćwiczeniu, dopóki jej nie zmienisz.</p>` : ''}`;
+  };
+
   // Tempo odcinka (min/km) z wpisanych wartości; puste, gdy brakuje dystansu albo czasu.
   const paceOf = (set) => {
     const km = toNumber(set.distance);
@@ -460,7 +487,7 @@ export async function viewWorkoutEditor(ctx, { workoutId, planId, day, clientId 
             <div class="wk-actions">
               <button type="button" class="chip ${item.showNote ? 'active' : ''}" data-toggle-note>${icons.edit} Notatka</button>
             </div>
-            ${item.showNote ? html`<textarea data-note rows="2" placeholder="Uwagi do ćwiczenia (technika, odczucia)…">${item.note}</textarea>` : ''}
+            ${item.showNote ? noteField(item, 'Uwagi do ćwiczenia (technika, odczucia)…') : ''}
           </section>`;
       }
 
@@ -497,7 +524,7 @@ export async function viewWorkoutEditor(ctx, { workoutId, planId, day, clientId 
               <button type="button" class="chip ${item.showNote ? 'active' : ''}" data-toggle-note>${icons.edit} Notatka</button>
               ${modeChips}
             </div>
-            ${item.showNote ? html`<textarea data-note rows="2" placeholder="Uwagi do biegu (samopoczucie, tętno, trasa)…">${item.note}</textarea>` : ''}
+            ${item.showNote ? noteField(item, 'Uwagi do biegu (samopoczucie, tętno, trasa)…') : ''}
           </section>`;
       }
 
@@ -528,13 +555,13 @@ export async function viewWorkoutEditor(ctx, { workoutId, planId, day, clientId 
             <button type="button" class="chip ${item.showNote ? 'active' : ''}" data-toggle-note>${icons.edit} Notatka</button>
             ${modeChips}
           </div>
-          ${item.showNote ? html`<textarea data-note rows="2" placeholder="Uwagi do ćwiczenia (technika, odczucia)…">${item.note}</textarea>` : ''}
+          ${item.showNote ? noteField(item, 'Uwagi do ćwiczenia (technika, odczucia)…') : ''}
         </section>`;
     })}` : ctx.emptyState(free ? 'Dodaj pierwsze ćwiczenie poniżej.' : 'Ten dzień planu nie ma ćwiczeń.');
   };
   // Zapis wersji roboczej – tylko gdy coś już wpisano (samo otwarcie treningu nic nie zostawia).
   const persist = () => {
-    const touched = items.some((item) => item.note || item.blockResult || item.sets.some((x) => x.done || x.weight || x.reps || x.time || x.distance))
+    const touched = items.some((item) => (item.note && item.note !== item.carriedNote) || item.blockResult || item.sets.some((x) => x.done || x.weight || x.reps || x.time || x.distance))
       || (free && items.length) || $('#wk-notes').value.trim();
     if (!touched) return writeDraft(draftKey, null);
     const title = free ? ($('#wk-title').value.trim() || FREE_WORKOUT) : [workout.plan_name, workout.day].filter(Boolean).join(' · ');
@@ -667,7 +694,8 @@ export async function viewWorkoutEditor(ctx, { workoutId, planId, day, clientId 
     const prev = previous.get(normalize(name));
     const groups = items.filter((x) => !x.joined).length;
     const item = {
-      name: lib?.name ?? name, exercise_id: lib?.id ?? null, label: letterFor(groups), joined: false, note: '',
+      name: lib?.name ?? name, exercise_id: lib?.id ?? null, label: letterFor(groups), joined: false,
+      note: stickyNote(lib?.name ?? name)?.note ?? '', carriedNote: stickyNote(lib?.name ?? name)?.note ?? '',
       sets: Array.from({ length: Math.min(prev?.sets.length || 3, MAX_SETS) }, blankSet), block: null, blockResult: '',
     };
     prepare(item);
@@ -754,7 +782,9 @@ function collectSets(items) {
     const note = item.note.trim();
     const blockResult = (item.blockResult ?? '').trim();
     const isLeader = item.groupBlock && !item.joined;
-    if (!kept.length && (note || (isLeader && blockResult))) kept.push({ weight: null, reps: null, duration_s: null, done: false });
+    // Sama przeniesiona, niezmieniona notatka nie tworzy wpisu – ćwiczenia nie robiono.
+    const ownNote = note && note !== (item.carriedNote ?? '').trim();
+    if (!kept.length && (ownNote || (isLeader && blockResult))) kept.push({ weight: null, reps: null, duration_s: null, done: false });
     kept.forEach((set, n) => sets.push({
       position, label: item.label ?? '', exercise_name: item.name, exercise_id: item.exercise_id ?? null,
       set_number: n + 1, ...set, note: n === 0 ? note : '',

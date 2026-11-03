@@ -9,6 +9,7 @@ Aplikacja na telefon (PWA) dla trenera personalnego i jego podopiecznych.
 - **Trening dowolny** (bez planu): ćwiczenia dodaje się w trakcie; ostatni ciężar w każdym ćwiczeniu jest pamiętany niezależnie od tego, czy był robiony w planie, czy w treningu dowolnym.
 - **Trening w toku**: rozpoczęty trening (z planu lub dowolny) zapisuje się w telefonie na bieżąco – można wyjść do menu, sprawdzić coś i wrócić przyciskiem „Wróć” z paska na górze. Znika po zapisaniu albo odrzuceniu.
 - **Podgląd ostatnich tygodni**: w treningu i w zakładce Treningi widać, co było robione w tym i poprzednim tygodniu (ćwiczenia, ciężary, powtórzenia); „+” dodaje ćwiczenie do bieżącego treningu.
+- **Notatki przy ćwiczeniach**: notatka wpisana przy ćwiczeniu (np. „podwyższenie 40 cm”) pojawia się przy nim w kolejnych treningach tej osoby, dopóki nie zostanie zmieniona.
 - **Szybkie dodawanie do bazy**: ćwiczenie wpisane z ręki w treningu można jednym przyciskiem dodać do bazy ćwiczeń.
 - **Bieg w planie**: przy ćwiczeniu zaznacza się „Bieg” i rozpisuje odcinki (dystans, czas, tempo, strefa Z1–Z5), np. 6 × 400 m w Z4 albo 5 km w Z2. W treningu wpisuje się km i czas (mm:ss), a tempo na km liczy się samo; kilometry z miesiąca widać w podsumowaniu.
 - **Moje treningi**: trener może układać plany i zapisywać treningi także dla siebie (karta „Moje treningi” na górze listy podopiecznych).

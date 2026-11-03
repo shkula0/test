@@ -771,3 +771,6 @@ fieldset { margin: 0; min-width: 0; }
 .recent-list .icon-btn { flex: none; color: var(--accent); }
 .chip-small { margin-top: 4px; padding: 3px 10px; font-size: 0.78rem; }
 .chip-small svg { width: 14px; height: 14px; }
+.wk-note { margin-top: 8px; font-size: 0.82rem; color: var(--muted); }
+.wk-note textarea { margin-top: 4px; background: var(--accent-soft); }
+.note-origin { margin: 4px 0 0; }
