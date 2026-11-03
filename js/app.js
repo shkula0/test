@@ -8,7 +8,10 @@ import {
   BLOCK_TYPES, blankTarget, blockParams, blockTitle, cleanTargets, defaultBlock, isRun, letterFor, planLabels, planTargets,
   targetText, targetsSummary,
 } from './plan-utils.js';
-import { FREE_WORKOUT, formatSet, previousByExercise, viewWorkout, viewWorkoutEditor, workoutList } from './workouts.js';
+import {
+  FREE_WORKOUT, discardDraft, draftBanner, formatSet, previousByExercise, recentWorkouts, recentWorkoutsHtml, viewWorkout,
+  viewWorkoutEditor, workoutList,
+} from './workouts.js';
 import { computeSummary, exerciseProgress, strengthEntries, summarySection } from './summary.js';
 import { exportExcel, exportPdf } from './export.js';
 import { viewRoutine, viewRoutineEditor, viewRoutines } from './routines.js';
@@ -125,9 +128,17 @@ function renderShell({ title, back, body, nav }) {
       <h1>${title}</h1>
       ${api.mode === 'demo' ? html`<span class="badge" title="Dane zapisywane tylko w tej przeglądarce">DEMO</span>` : ''}
     </header>
+    ${me ? draftBanner(me.id, location.hash) : ''}
     <main class="content">${body}</main>
     ${me ? navBar(nav) : ''}
   `;
+  for (const button of app.querySelectorAll('[data-discard-draft]')) {
+    button.addEventListener('click', () => {
+      if (!confirm('Odrzucić rozpoczęty trening? Wpisane serie zostaną usunięte.')) return;
+      discardDraft(button.dataset.discardDraft);
+      button.closest('.draft-item').remove();
+    });
+  }
   window.scrollTo(0, 0);
 }
 
@@ -454,7 +465,13 @@ async function workoutsSection(clientId, emptyText, limit = Infinity) {
   if (!workouts.length) return emptyState(emptyText);
   const setsByWorkout = new Map();
   for (const set of sets) setsByWorkout.set(set.workout_id, [...(setsByWorkout.get(set.workout_id) ?? []), set]);
-  return workoutList(workouts.slice(0, limit), setsByWorkout);
+  const recent = recentWorkouts(sets);
+  return html`
+    ${recent.length ? html`<details class="card recent">
+      <summary><strong>Podgląd: ten i poprzedni tydzień</strong> <span class="muted small">(${recent.length})</span></summary>
+      ${recentWorkoutsHtml(recent)}
+    </details>` : ''}
+    ${workoutList(workouts.slice(0, limit), setsByWorkout)}`;
 }
 
 function planList(plans) {

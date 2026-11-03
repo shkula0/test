@@ -72,6 +72,127 @@ export function previousByExercise(allSets, { planId, day, excludeId }) {
 }
 
 // ============================================================
+// Wersje robocze: rozpoczęty trening zostaje w telefonie, można wyjść i wrócić.
+// ============================================================
+
+const DRAFT_PREFIX = 'trener-draft-v1:';
+const DRAFT_MAX_AGE = 3 * 24 * 3600 * 1000;
+
+function readDrafts(userId) {
+  const drafts = [];
+  try {
+    for (let i = 0; i < localStorage.length; i += 1) {
+      const key = localStorage.key(i);
+      if (!key?.startsWith(`${DRAFT_PREFIX}${userId}:`)) continue;
+      const draft = JSON.parse(localStorage.getItem(key));
+      if (Date.now() - draft.savedAt > DRAFT_MAX_AGE) continue;
+      drafts.push({ ...draft, key });
+    }
+  } catch {
+    return [];
+  }
+  return drafts.sort((a, b) => b.savedAt - a.savedAt);
+}
+
+function writeDraft(key, draft) {
+  try {
+    if (draft) localStorage.setItem(key, JSON.stringify({ ...draft, savedAt: Date.now() }));
+    else localStorage.removeItem(key);
+  } catch {
+    // Brak miejsca lub tryb prywatny – trening działa dalej, tylko bez wersji roboczej.
+  }
+}
+
+// Pasek „Trening w toku” na pozostałych ekranach (pomijamy ekran tego treningu).
+export function draftBanner(userId, currentHash) {
+  const drafts = readDrafts(userId).filter((d) => `#${d.href}` !== currentHash);
+  if (!drafts.length) return '';
+  return html`<div class="draft-bar">${drafts.map((d) => html`
+    <div class="draft-item">
+      <span class="grow">${icons.play} <strong>Trening w toku</strong><br><span class="small">${d.label}</span></span>
+      <a class="btn btn-small" href="#${d.href}">Wróć</a>
+      <button type="button" class="icon-btn" data-discard-draft="${d.key}" aria-label="Odrzuć rozpoczęty trening">${icons.trash}</button>
+    </div>`)}</div>`;
+}
+
+export function discardDraft(key) {
+  writeDraft(key, null);
+}
+
+// ============================================================
+// Podgląd ostatnich tygodni: co było robione (ćwiczenia, ciężary, powtórzenia)
+// ============================================================
+
+function isoDate(date) {
+  const d = new Date(date);
+  d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+  return d.toISOString().slice(0, 10);
+}
+
+// Poniedziałek poprzedniego tygodnia.
+function previousWeekStart(today = new Date()) {
+  const d = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  d.setDate(d.getDate() - ((d.getDay() + 6) % 7) - 7);
+  return isoDate(d);
+}
+
+function hasResult(set) {
+  return set.weight != null || set.reps != null || set.duration_s != null || set.distance_m != null || set.done;
+}
+
+// Serie ćwiczenia w jednej linijce; jednakowe serie zwijane: „3 × 60 kg × 8”.
+function setsLine(sets) {
+  const parts = [];
+  for (const set of sets) {
+    const text = formatSet(set);
+    if (parts.at(-1)?.text === text) parts.at(-1).count += 1;
+    else parts.push({ text, count: 1 });
+  }
+  return parts.map((p) => (p.count > 1 ? `${p.count} × ${p.text}` : p.text)).join(', ');
+}
+
+// Treningi od poniedziałku poprzedniego tygodnia, najnowsze na górze.
+export function recentWorkouts(allSets, { excludeId } = {}) {
+  const from = previousWeekStart();
+  const byWorkout = new Map();
+  for (const set of allSets) {
+    if (set.workout_id === excludeId || set.performed_on < from) continue;
+    if (!byWorkout.has(set.workout_id)) {
+      byWorkout.set(set.workout_id, {
+        id: set.workout_id, date: set.performed_on, created: set.workout_created_at ?? '', title: set.day || 'Trening', exercises: new Map(),
+      });
+    }
+    const exercises = byWorkout.get(set.workout_id).exercises;
+    if (!exercises.has(set.position)) exercises.set(set.position, { name: set.exercise_name, label: set.label, sets: [], result: '' });
+    const ex = exercises.get(set.position);
+    if (set.block_result) ex.result = set.block_result;
+    if (hasResult(set)) ex.sets.push(set);
+  }
+  return [...byWorkout.values()]
+    .sort((a, b) => b.date.localeCompare(a.date) || b.created.localeCompare(a.created))
+    .map((w) => ({
+      ...w,
+      exercises: [...w.exercises.entries()].sort(([a], [b]) => a - b)
+        .map(([, ex]) => ({ ...ex, sets: ex.sets.sort((a, b) => a.set_number - b.set_number) })),
+    }));
+}
+
+// addable: przy każdym ćwiczeniu przycisk „+”, który dodaje je do bieżącego treningu.
+export function recentWorkoutsHtml(workouts, { addable = false } = {}) {
+  if (!workouts.length) return html`<p class="muted small">Brak treningów w tym i poprzednim tygodniu.</p>`;
+  return html`${workouts.map((w) => html`
+    <div class="recent-wk">
+      <p class="recent-head"><strong>${formatDate(w.date)}</strong> · ${w.title}</p>
+      <ul class="recent-list">${w.exercises.map((ex) => html`<li>
+        <span class="grow">${ex.label ? html`<span class="muted">${ex.label}</span> ` : ''}<strong>${ex.name}</strong>
+          ${ex.sets.length ? html`<br><span class="small">${setsLine(ex.sets)}</span>` : ''}
+          ${ex.result ? html`<br><span class="small">Wynik: ${ex.result}</span>` : ''}</span>
+        ${addable ? html`<button type="button" class="icon-btn" data-copy-exercise="${ex.name}" aria-label="Dodaj ${ex.name} do treningu">${icons.plus}</button>` : ''}
+      </li>`)}</ul>
+    </div>`)}`;
+}
+
+// ============================================================
 // Rozpoczęcie / edycja treningu
 // ============================================================
 
@@ -103,7 +224,17 @@ export async function viewWorkoutEditor(ctx, { workoutId, planId, day, clientId 
     performed_on: todayIso(),
     notes: '',
   });
-  const [library, allSets] = await Promise.all([api.listExercises(), api.listWorkoutSets(workout.client_id)]);
+  const [library, allSets, client] = await Promise.all([
+    api.listExercises(), api.listWorkoutSets(workout.client_id),
+    workout.client_id !== me.id ? api.getProfile(workout.client_id).catch(() => null) : null,
+  ]);
+  const recent = recentWorkouts(allSets, { excludeId: existing?.workout.id });
+
+  // Wersja robocza tego treningu (zapisywana w telefonie przy każdej zmianie).
+  const draftKey = `${DRAFT_PREFIX}${me.id}:${existing ? `edit:${existing.workout.id}`
+    : planData ? `plan:${planData.plan.id}:${workout.day}` : `free:${workout.client_id}`}`;
+  const draft = readDrafts(me.id).find((d) => d.key === draftKey) ?? null;
+  if (draft) Object.assign(workout, { performed_on: draft.performedOn, notes: draft.notes, day: draft.title ?? workout.day });
   // „Poprzednio”: najpierw ten sam plan i dzień, a jeśli tam ćwiczenia nie było – ostatni dowolny trening z nim.
   const previous = previousByExercise(allSets, { planId: workout.plan_id, day: workout.day, excludeId: existing?.workout.id });
 
@@ -117,7 +248,10 @@ export async function viewWorkoutEditor(ctx, { workoutId, planId, day, clientId 
 
   const blankSet = () => ({ weight: '', reps: '', time: '', distance: '', done: false });
   let items;
-  if (existing) {
+  const draftModes = draft?.items.map((item) => ({ timeMode: item.timeMode, runMode: item.runMode }));
+  if (draft) {
+    items = draft.items;
+  } else if (existing) {
     const byPosition = new Map();
     for (const set of existing.sets) {
       if (!byPosition.has(set.position)) {
@@ -175,6 +309,8 @@ export async function viewWorkoutEditor(ctx, { workoutId, planId, day, clientId 
         || item.sets.some((x) => x.time !== '' && x.reps === '');
   };
   items.forEach(prepare);
+  // Tryby przełączone ręcznie (na czas / bieg) wracają z wersji roboczej.
+  draftModes?.forEach((modes, i) => Object.assign(items[i], modes));
   // Blok (EMOM/AMRAP/…) obejmuje pierwsze ćwiczenie grupy i dołączone do niego; w bloku jedno zadanie na rundę.
   const assignBlocks = () => {
     // Oznaczenia A, B1, B2… liczone na nowo (po dodaniu, usunięciu lub połączeniu ćwiczeń).
@@ -220,9 +356,14 @@ export async function viewWorkoutEditor(ctx, { workoutId, planId, day, clientId 
             : html`<strong>${workout.plan_name}</strong>${workout.day ? html` · ${workout.day}` : ''}`}
           <p class="muted small"><span class="ghost-sample">Szare liczby</span> to ostatni wynik w danym ćwiczeniu (przy pierwszym razie pola są puste).
             Bez zmian? Stuknij numer serii, żeby ją odhaczyć. Progres? Najpierw wpisz nowy wynik.</p>
+          <p class="muted small">Możesz spokojnie wyjść z tego ekranu – wpisane serie poczekają, a na górze aplikacji pojawi się „Trening w toku”.</p>
         </div>
         <label class="wk-date">Data<input type="date" id="wk-date" value="${workout.performed_on}" required></label>
       </section>
+      <details class="card recent" id="wk-recent" ${free && !items.length ? 'open' : ''}>
+        <summary><strong>Ostatnie treningi</strong> <span class="muted small">– ten i poprzedni tydzień (${recent.length})</span></summary>
+        ${recentWorkoutsHtml(recent, { addable: true })}
+      </details>
       <div id="wk-items" class="stack"></div>
       <section class="card wk-add">
         <label>Dodaj ćwiczenie
@@ -234,6 +375,7 @@ export async function viewWorkoutEditor(ctx, { workoutId, planId, day, clientId 
       <section class="card">
         <label>Notatka do treningu<textarea id="wk-notes" rows="2" placeholder="Samopoczucie, uwagi…">${workout.notes}</textarea></label>
       </section>
+      ${!existing ? html`<button type="button" class="btn btn-outline danger btn-block" id="wk-discard">${icons.trash} Odrzuć ten trening</button>` : ''}
       <div class="sticky-actions"><button class="btn btn-block" id="wk-save">${icons.check} Zapisz trening</button></div>`,
   });
 
@@ -263,6 +405,7 @@ export async function viewWorkoutEditor(ctx, { workoutId, planId, day, clientId 
       <span class="ex-label">${item.label || i + 1}</span>
       <div class="grow">
         <strong>${item.name}</strong>
+        ${!info && me.role === 'coach' ? html`<br><button type="button" class="chip chip-small" data-to-library>${icons.plus} Dodaj do bazy ćwiczeń</button>` : ''}
         ${plan?.rest && !item.groupBlock ? html`<br><span class="muted small">Przerwa: ${plan.rest}</span>` : ''}
         ${plan?.notes ? html`<br><span class="muted small">${plan.notes}</span>` : ''}
         ${prev ? html`<br><span class="muted small">Poprzednio: ${formatDate(prev.date)}</span>` : ''}
@@ -389,7 +532,28 @@ export async function viewWorkoutEditor(ctx, { workoutId, planId, day, clientId 
         </section>`;
     })}` : ctx.emptyState(free ? 'Dodaj pierwsze ćwiczenie poniżej.' : 'Ten dzień planu nie ma ćwiczeń.');
   };
+  // Zapis wersji roboczej – tylko gdy coś już wpisano (samo otwarcie treningu nic nie zostawia).
+  const persist = () => {
+    const touched = items.some((item) => item.note || item.blockResult || item.sets.some((x) => x.done || x.weight || x.reps || x.time || x.distance))
+      || (free && items.length) || $('#wk-notes').value.trim();
+    if (!touched) return writeDraft(draftKey, null);
+    const title = free ? ($('#wk-title').value.trim() || FREE_WORKOUT) : [workout.plan_name, workout.day].filter(Boolean).join(' · ');
+    writeDraft(draftKey, {
+      href: location.hash.slice(1),
+      label: [client?.full_name, title, formatDate($('#wk-date').value || workout.performed_on)].filter(Boolean).join(' · '),
+      title: free ? $('#wk-title').value : undefined,
+      performedOn: $('#wk-date').value,
+      notes: $('#wk-notes').value,
+      items: items.map(({ showNote, targets, groupBlock, ...item }) => item),
+    });
+  };
+  const drawAndSave = () => {
+    draw();
+    persist();
+  };
   draw();
+  if (draft) toast('Wróciłeś do rozpoczętego treningu', 'success');
+  ['#wk-date', '#wk-notes', '#wk-title'].forEach((id) => $(id)?.addEventListener('input', persist));
 
   const itemOf = (el) => items[Number(el.closest('[data-item]').dataset.item)];
   const setOf = (el) => itemOf(el).sets[Number(el.closest('[data-set]').dataset.set)];
@@ -417,6 +581,7 @@ export async function viewWorkoutEditor(ctx, { workoutId, planId, day, clientId 
     }
     if ('note' in event.target.dataset) itemOf(event.target).note = event.target.value;
     if ('blockResult' in event.target.dataset) itemOf(event.target).blockResult = event.target.value;
+    persist();
   });
 
   container.addEventListener('change', (event) => {
@@ -443,15 +608,28 @@ export async function viewWorkoutEditor(ctx, { workoutId, planId, day, clientId 
     } else {
       return;
     }
-    draw();
+    drawAndSave();
   });
 
-  container.addEventListener('click', (event) => {
+  container.addEventListener('click', async (event) => {
     const button = event.target.closest('button');
     if (!button) return;
     const index = Number(button.closest('[data-item]').dataset.item);
     const item = items[index];
-    if ('done' in button.dataset) {
+    if ('toLibrary' in button.dataset) {
+      // Ćwiczenie wpisane z ręki trafia do bazy trenera (zdjęcie lub film można dodać później).
+      button.disabled = true;
+      try {
+        const id = await api.saveExercise({ name: item.name, category: '', description: '', video_url: '', is_public: false });
+        library.push(await api.getExercise(id));
+        item.exercise_id = id;
+        toast(`Dodano „${item.name}” do bazy ćwiczeń – zdjęcie lub film dodasz w zakładce Ćwiczenia`, 'success');
+      } catch (error) {
+        toast(error.message, 'error');
+        button.disabled = false;
+        return;
+      }
+    } else if ('done' in button.dataset) {
       const set = setOf(button);
       set.done = !set.done;
       if (set.done) confirmGhost(item, Number(button.closest('[data-set]').dataset.set));
@@ -477,7 +655,7 @@ export async function viewWorkoutEditor(ctx, { workoutId, planId, day, clientId 
     } else {
       return;
     }
-    draw();
+    drawAndSave();
   });
 
   // Dodawanie ćwiczenia w trakcie treningu (trening dowolny albo coś spoza planu).
@@ -496,10 +674,23 @@ export async function viewWorkoutEditor(ctx, { workoutId, planId, day, clientId 
     items.push(item);
     assignBlocks();
     input.value = '';
-    draw();
+    drawAndSave();
     container.lastElementChild?.scrollIntoView({ behavior: 'smooth', block: 'center' });
   };
   $('#wk-add').addEventListener('click', addExercise);
+  // „+” w podglądzie ostatnich treningów dodaje to samo ćwiczenie do bieżącego treningu.
+  $('#wk-recent').addEventListener('click', (event) => {
+    const button = event.target.closest('[data-copy-exercise]');
+    if (!button) return;
+    $('#wk-add-name').value = button.dataset.copyExercise;
+    addExercise();
+    toast(`Dodano: ${button.dataset.copyExercise}`, 'success');
+  });
+  $('#wk-discard')?.addEventListener('click', () => {
+    if (!confirm('Odrzucić ten trening? Wpisane serie zostaną usunięte.')) return;
+    writeDraft(draftKey, null);
+    ctx.go(backTo);
+  });
   $('#wk-add-name').addEventListener('keydown', (event) => {
     if (event.key === 'Enter') {
       event.preventDefault();
@@ -523,6 +714,7 @@ export async function viewWorkoutEditor(ctx, { workoutId, planId, day, clientId 
       const id = await api.saveWorkout({
         ...workout, id: existing?.workout.id, day: title, performed_on: performedOn, notes: $('#wk-notes').value.trim(),
       }, sets);
+      writeDraft(draftKey, null);
       toast('Trening zapisany', 'success');
       ctx.go(`/workout/${id}`);
     } catch (error) {

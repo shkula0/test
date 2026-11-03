@@ -746,3 +746,28 @@ fieldset { margin: 0; min-width: 0; }
 .run-log th:nth-child(2) { width: 26%; }
 .run-log input { padding: 9px 2px; }
 .run-pace { font-size: 0.78rem; color: var(--muted); text-align: center; white-space: nowrap; font-variant-numeric: tabular-nums; }
+
+/* ============================================================
+   Trening w toku (wersja robocza) i podgląd ostatnich tygodni
+   ============================================================ */
+.draft-bar { padding: 8px 16px 0; }
+.draft-item {
+  display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-radius: var(--radius);
+  background: var(--accent); color: var(--accent-text); box-shadow: var(--shadow);
+}
+.draft-item + .draft-item { margin-top: 6px; }
+.draft-item .btn { background: var(--surface); color: var(--accent); }
+.draft-item .icon-btn { color: var(--accent-text); }
+.draft-item svg { width: 16px; height: 16px; vertical-align: -3px; }
+.recent summary { cursor: pointer; list-style: none; padding: 2px 0; }
+.recent summary::-webkit-details-marker { display: none; }
+.recent summary::after { content: '▾'; float: right; color: var(--muted); }
+.recent[open] summary::after { content: '▴'; }
+.recent[open] summary { margin-bottom: 8px; }
+.recent-wk + .recent-wk { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--border); }
+.recent-head { margin: 0 0 4px; }
+.recent-list { list-style: none; margin: 0; padding: 0; }
+.recent-list li { display: flex; align-items: center; gap: 8px; padding: 5px 0; }
+.recent-list .icon-btn { flex: none; color: var(--accent); }
+.chip-small { margin-top: 4px; padding: 3px 10px; font-size: 0.78rem; }
+.chip-small svg { width: 14px; height: 14px; }
