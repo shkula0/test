@@ -1,4 +1,4 @@
-// Karnety podopiecznych: ile treningów zostało, do kiedy ważny, odbijanie treningów i panel trenera.
+// Karnety podopiecznych: ile treningów zostało, odbijanie treningów, przypomnienia i panel trenera.
 
 import { api } from './data/index.js';
 import { icons } from './icons.js';
@@ -14,54 +14,22 @@ function plural(n, one, few, many) {
 }
 
 const trainings = (n) => `${n} ${plural(n, 'trening', 'treningi', 'treningów')}`;
-const daysWord = (n) => `${n} ${plural(n, 'dzień', 'dni', 'dni')}`;
 
-function parseIso(iso) {
-  const [y, m, d] = iso.split('-').map(Number);
-  return new Date(y, m - 1, d);
-}
-
-function isoOf(date) {
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
-}
-
-function addDays(iso, days) {
-  const d = parseIso(iso);
-  d.setDate(d.getDate() + days);
-  return isoOf(d);
-}
-
-function daysBetween(from, to) {
-  return Math.round((parseIso(to) - parseIso(from)) / 86400000);
-}
-
-// Karnet miesięczny: 05.11 → 04.12, a 31.01 → 28.02 (dzień przed tym samym dniem kolejnego miesiąca).
-export function monthEnd(startIso) {
-  const start = parseIso(startIso);
-  const lastDayNext = new Date(start.getFullYear(), start.getMonth() + 2, 0).getDate();
-  const end = new Date(start.getFullYear(), start.getMonth() + 1, Math.min(start.getDate(), lastDayNext));
-  if (start.getDate() <= lastDayNext) end.setDate(end.getDate() - 1);
-  return isoOf(end);
-}
-
-export function passStatus(pass, today = todayIso()) {
+export function passStatus(pass) {
   const used = pass.uses?.length ?? 0;
   const left = pass.sessions - used;
-  const state = today < pass.starts_on ? 'upcoming' : today > pass.ends_on ? 'expired' : left <= 0 ? 'used' : 'active';
-  const daysLeft = daysBetween(today, pass.ends_on);
-  return { used, left, state, daysLeft, ending: state === 'active' && (left <= 1 || daysLeft <= 5) };
+  return { used, left, state: left > 0 ? 'active' : 'used', ending: left === 1 };
 }
 
-// Karnet „na dziś”: ważny z wolnymi treningami (najpierw ten, który kończy się najwcześniej),
-// potem ważny wykorzystany, potem przyszły, a na końcu ostatni wygasły.
-export function currentPass(passes, today = todayIso()) {
-  const rows = passes.map((pass) => ({ pass, status: passStatus(pass, today) }));
-  const byEnd = (a, b) => a.pass.ends_on.localeCompare(b.pass.ends_on);
-  return rows.filter((r) => r.status.state === 'active').sort(byEnd)[0]
-    ?? rows.filter((r) => r.status.state === 'used').sort(byEnd)[0]
-    ?? rows.filter((r) => r.status.state === 'upcoming').sort((a, b) => a.pass.starts_on.localeCompare(b.pass.starts_on))[0]
-    ?? rows.sort(byEnd).at(-1)
-    ?? null;
+const byPurchase = (a, b) => a.pass.starts_on.localeCompare(b.pass.starts_on) || a.pass.created_at.localeCompare(b.pass.created_at);
+
+// Karnet „bieżący”: najstarszy z wolnymi treningami (kolejny karnet czeka, aż ten się skończy),
+// a gdy wszystkie są wykorzystane – ostatni. queued: ile karnetów czeka w kolejce.
+export function currentPass(passes) {
+  const rows = passes.map((pass) => ({ pass, status: passStatus(pass) })).sort(byPurchase);
+  const open = rows.filter((r) => r.status.state === 'active');
+  const current = open[0] ?? rows.at(-1);
+  return current ? { ...current, queued: Math.max(open.length - 1, 0) } : null;
 }
 
 // Karnet nie zostanie odczytany, jeśli w bazie nie ma jeszcze tabel (migracja 010) – wtedy po prostu go nie pokazujemy.
@@ -73,18 +41,15 @@ export async function loadPasses(clientId) {
   }
 }
 
-function stateLine(pass, status) {
-  if (status.state === 'upcoming') return `Zaczyna się ${formatDate(pass.starts_on)}`;
-  if (status.state === 'expired') return `Wygasł ${formatDate(pass.ends_on)}`;
-  if (status.daysLeft === 0) return 'Ważny do dziś';
-  return `Ważny do ${formatDate(pass.ends_on)} (jeszcze ${daysWord(status.daysLeft)})`;
+function stateLine(current) {
+  const queued = current.queued ? ` · czeka jeszcze ${current.queued === 1 ? 'kolejny karnet' : `${current.queued} karnety`}` : '';
+  return `Od ${formatDate(current.pass.starts_on)}${queued}`;
 }
 
 function badges(pass, status) {
   const list = [];
-  if (status.state === 'expired') list.push(['danger', 'wygasł']);
-  else if (status.state === 'used') list.push(['danger', 'wykorzystany']);
-  else if (status.ending) list.push(['warn', 'kończy się']);
+  if (status.state === 'used') list.push(['danger', 'wykorzystany']);
+  else if (status.ending) list.push(['warn', 'ostatni trening']);
   if (!pass.paid) list.push(['warn', pass.price ? `do zapłaty ${formatNumber(pass.price, 2)} zł` : 'nieopłacony']);
   return list.map(([tone, text]) => html`<span class="pass-badge ${tone}">${text}</span>`);
 }
@@ -100,8 +65,7 @@ function dots(pass, status) {
 export function passCard(current, { manageHref = '', compact = false } = {}) {
   if (!current) return '';
   const { pass, status } = current;
-  const big = status.state === 'upcoming' ? trainings(pass.sessions)
-    : status.left >= 0 ? `Zostało ${status.left} z ${pass.sessions}` : `Ponad karnet: ${-status.left}`;
+  const big = status.left >= 0 ? `Zostało ${status.left} z ${pass.sessions}` : `Ponad karnet: ${-status.left}`;
   return html`<section class="card pass-card ${status.state} ${status.ending ? 'ending' : ''}">
     <div class="row gap">
       <span class="pass-icon">${icons.ticket}</span>
@@ -112,27 +76,84 @@ export function passCard(current, { manageHref = '', compact = false } = {}) {
       ${manageHref ? html`<a class="btn btn-small btn-outline" href="#${manageHref}">Zarządzaj</a>` : ''}
     </div>
     ${dots(pass, status)}
-    <p class="small pass-line">${stateLine(pass, status)} ${badges(pass, status)}</p>
+    <p class="small pass-line">${stateLine(current)} ${badges(pass, status)}</p>
     ${!compact && pass.notes ? html`<p class="muted small">${pass.notes}</p>` : ''}
   </section>`;
 }
 
-// Odbicie treningu z karnetu; gdy karnet jest wykorzystany albo nieważny – najpierw pytamy.
-async function usePass(current, usedOn = todayIso()) {
-  const { pass, status } = current;
-  if (status.state === 'expired' && !confirm(`Karnet wygasł ${formatDate(pass.ends_on)}. Odbić mimo to?`)) return false;
-  if (status.state === 'upcoming' && !confirm(`Karnet zaczyna się ${formatDate(pass.starts_on)}. Odbić już teraz?`)) return false;
-  if (status.left <= 0 && !confirm('Wszystkie treningi z karnetu są już wykorzystane. Odbić ponad karnet?')) return false;
-  await api.addPassUse(pass.id, usedOn);
-  toast(`Odbito trening – zostało ${status.left - 1} z ${pass.sessions}`, 'success');
+// Komunikat po odbiciu: ostatni trening i koniec karnetu wyróżnione.
+export function afterUseMessage(current) {
+  const left = current.status.left - 1;
+  if (left === 1) return 'Odbito trening – został OSTATNI trening w karnecie';
+  if (left === 0) return current.queued ? 'Karnet wykorzystany – kolejny karnet rusza od następnego treningu' : 'Karnet wykorzystany – czas na nowy karnet';
+  if (left < 0) return `Odbito ponad karnet (${-left})`;
+  return `Odbito trening – zostało ${left} z ${current.pass.sessions}`;
+}
+
+// Odbicie treningu z karnetu; gdy karnet jest wykorzystany – najpierw pytamy.
+async function usePass(current) {
+  if (current.status.left <= 0 && !confirm('Wszystkie treningi z karnetu są już wykorzystane. Odbić ponad karnet?')) return false;
+  await api.addPassUse(current.pass.id, todayIso());
+  toast(afterUseMessage(current), current.status.left <= 2 ? 'error' : 'success');
   return true;
+}
+
+// Przypomnienia dla trenera: ostatni trening, wykorzystany karnet, nowy karnet do opłacenia.
+export function passAlerts(clients, passes) {
+  const alerts = [];
+  for (const client of clients) {
+    const current = currentPass(passes.filter((p) => p.client_id === client.id));
+    if (!current) continue;
+    const { pass, status } = current;
+    if (status.ending) alerts.push({ client, pass, kind: 'last', text: 'został ostatni trening w karnecie' });
+    if (status.state === 'used') alerts.push({ client, pass, kind: 'used', text: 'karnet wykorzystany – czas na nowy' });
+    if (!pass.paid) {
+      const amount = pass.price ? ` ${formatNumber(pass.price, 2)} zł` : '';
+      alerts.push({ client, pass, kind: 'pay', text: `nowy karnet (${trainings(pass.sessions)}) – przypomnij o wpłacie${amount}` });
+    }
+  }
+  return alerts;
+}
+
+const ALERT_ICON = { last: '⚠️', used: '⛔', pay: '💰' };
+
+// Lista przypomnień; przy wpłacie przycisk „Opłacony”. Zwraca '' gdy nie ma czego pokazać.
+export function passAlertsHtml(alerts) {
+  if (!alerts.length) return '';
+  return html`<section class="card pass-alerts">
+    <h2 class="small-head">${icons.ticket} Karnety – przypomnienia</h2>
+    <ul class="list">${alerts.map((a) => html`<li class="pass-alert ${a.kind}">
+      <span aria-hidden="true">${ALERT_ICON[a.kind]}</span>
+      <a class="grow" href="#/passes/${a.client.id}"><strong>${a.client.full_name}</strong> – ${a.text}</a>
+      ${a.kind === 'pay' ? html`<button type="button" class="btn btn-small btn-outline" data-mark-paid="${a.pass.id}">Opłacony</button>` : ''}
+      ${a.kind === 'used' ? html`<a class="btn btn-small" href="#/passes/${a.client.id}/new">Nowy</a>` : ''}
+    </li>`)}</ul>
+  </section>`;
+}
+
+// Obsługa przycisku „Opłacony” w przypomnieniach; po zapisie odświeża widok.
+export function bindPassAlerts(root, passes, refresh) {
+  root.addEventListener('click', async (event) => {
+    const button = event.target.closest('[data-mark-paid]');
+    if (!button) return;
+    const pass = passes.find((p) => p.id === button.dataset.markPaid);
+    button.disabled = true;
+    try {
+      await api.savePass({ ...pass, paid: true });
+      toast('Karnet opłacony', 'success');
+      refresh();
+    } catch (error) {
+      toast(error.message, 'error');
+      button.disabled = false;
+    }
+  });
 }
 
 // ============================================================
 // Panel trenera: wszyscy podopieczni i ich karnety
 // ============================================================
 
-const URGENCY = { none: 0, expired: 1, used: 2, ending: 3, unpaid: 4, upcoming: 5, active: 6 };
+const URGENCY = { none: 0, used: 1, ending: 2, unpaid: 3, active: 4 };
 
 export async function viewPasses(ctx) {
   const [clients, passes] = await Promise.all([api.listClients(), loadPasses()]);
@@ -146,13 +167,13 @@ export async function viewPasses(ctx) {
   const rows = clients.map((client) => {
     const current = currentPass(passes.filter((p) => p.client_id === client.id));
     const s = current?.status;
-    const key = !current ? 'none' : s.state === 'expired' ? 'expired' : s.state === 'used' ? 'used' : s.ending ? 'ending'
-      : !current.pass.paid ? 'unpaid' : s.state;
+    const key = !current ? 'none' : s.state === 'used' ? 'used' : s.ending ? 'ending' : !current.pass.paid ? 'unpaid' : 'active';
     return { client, current, key };
   }).sort((a, b) => URGENCY[a.key] - URGENCY[b.key] || a.client.full_name.localeCompare(b.client.full_name, 'pl'));
 
-  const active = rows.filter((r) => r.current && ['active', 'used'].includes(r.current.status.state)).length;
-  const attention = rows.filter((r) => ['none', 'expired', 'used', 'ending'].includes(r.key)).length;
+  const active = rows.filter((r) => r.current?.status.state === 'active').length;
+  const attention = rows.filter((r) => ['none', 'used', 'ending'].includes(r.key)).length;
+  const alerts = passAlerts(clients, passes);
   const unpaid = passes.filter((p) => !p.paid && p.client_id !== ctx.me.id);
   const unpaidSum = unpaid.reduce((sum, p) => sum + (Number(p.price) || 0), 0);
 
@@ -165,26 +186,26 @@ export async function viewPasses(ctx) {
         <div><span class="stat ${attention ? 'warn' : ''}">${attention}</span><span class="muted small">do przedłużenia</span></div>
         <div><span class="stat ${unpaid.length ? 'warn' : ''}">${unpaid.length}</span><span class="muted small">do zapłaty${unpaidSum ? html`<br>${formatNumber(unpaidSum, 0)} zł` : ''}</span></div>
       </section>
+      ${passAlertsHtml(alerts)}
       ${rows.length ? html`<div class="stack">${rows.map(({ client, current }) => html`
         <section class="card pass-row" data-client="${client.id}">
           <a class="row gap pass-row-head" href="#/passes/${client.id}">
             <span class="avatar">${initials(client.full_name)}</span>
             <span class="grow"><strong>${client.full_name}</strong><br>
-              <span class="small ${current ? '' : 'muted'}">${current
-                ? (current.status.state === 'upcoming' ? trainings(current.pass.sessions) : `Zostało ${current.status.left} z ${current.pass.sessions}`)
-                : 'Brak karnetu'}</span></span>
+              <span class="small ${current ? '' : 'muted'}">${current ? `Zostało ${current.status.left} z ${current.pass.sessions}` : 'Brak karnetu'}</span></span>
             ${icons.chevron}
           </a>
           ${current ? html`${dots(current.pass, current.status)}
-            <p class="small pass-line">${stateLine(current.pass, current.status)} ${badges(current.pass, current.status)}</p>` : ''}
+            <p class="small pass-line">${stateLine(current)} ${badges(current.pass, current.status)}</p>` : ''}
           <div class="row gap wrap">
-            ${current && current.status.state !== 'expired' ? html`<button type="button" class="btn btn-small" data-use>${icons.check} Odbij trening</button>` : ''}
+            ${current ? html`<button type="button" class="btn btn-small" data-use>${icons.check} Odbij trening</button>` : ''}
             <a class="btn btn-small btn-outline" href="#/passes/${client.id}/new">${icons.plus} ${current ? 'Nowy / przedłuż' : 'Dodaj karnet'}</a>
           </div>
         </section>`)}</div>`
         : ctx.emptyState('Nie masz jeszcze podopiecznych. Zaproś ich w zakładce Podopieczni.')}`,
   });
 
+  bindPassAlerts($('.content'), passes, () => viewPasses(ctx));
   $('.content').addEventListener('click', async (event) => {
     const button = event.target.closest('[data-use]');
     if (!button) return;
@@ -228,20 +249,18 @@ export async function viewClientPasses(ctx, clientId) {
       ${current ? html`
         ${passCard(current)}
         <div class="row gap wrap">
-          ${current.status.state !== 'expired' ? html`<button type="button" class="btn grow" id="use-pass">${icons.check} Odbij trening</button>` : ''}
+          <button type="button" class="btn grow" id="use-pass">${icons.check} Odbij trening</button>
           <a class="btn btn-outline" href="#/passes/${clientId}/edit?id=${current.pass.id}">${icons.edit} Edytuj</a>
         </div>
-        <label class="use-date small">Data odbicia (dla zaległych treningów zmień na wcześniejszą)
-          <input type="date" id="use-date" value="${todayIso()}"></label>
         ${!current.pass.paid ? html`<button type="button" class="btn btn-outline btn-block" id="mark-paid">${icons.check} Oznacz jako opłacony</button>` : ''}
         <section class="card"><h2 class="small-head">Odbite treningi</h2>${usesList(current.pass)}</section>`
         : ctx.emptyState('Ten podopieczny nie ma jeszcze karnetu.')}
       <a class="btn btn-block ${current ? 'btn-outline' : ''}" href="#/passes/${clientId}/new">${icons.plus} ${current ? 'Nowy karnet / przedłużenie' : 'Dodaj karnet'}</a>
-      ${others.length ? html`<h2>Poprzednie i kolejne karnety</h2>
+      ${others.length ? html`<h2>Pozostałe karnety</h2>
         <ul class="list card">${others.map((p) => {
           const s = passStatus(p);
           return html`<li><a class="list-item" href="#/passes/${clientId}/edit?id=${p.id}">
-            <span class="grow"><strong>${trainings(p.sessions)}</strong> · ${formatDate(p.starts_on)} – ${formatDate(p.ends_on)}<br>
+            <span class="grow"><strong>${trainings(p.sessions)}</strong> · od ${formatDate(p.starts_on)}${s.state === 'active' && !s.used ? ' · czeka w kolejce' : ''}<br>
               <span class="muted small">Wykorzystano ${s.used} z ${p.sessions}${p.paid ? '' : ' · nieopłacony'}</span></span>
             ${icons.chevron}</a></li>`;
         })}</ul>` : ''}`,
@@ -250,7 +269,7 @@ export async function viewClientPasses(ctx, clientId) {
   $('#use-pass')?.addEventListener('click', async (event) => {
     event.currentTarget.disabled = true;
     try {
-      await usePass(current, $('#use-date').value || todayIso());
+      await usePass(current);
     } catch (error) {
       toast(error.message, 'error');
     }
@@ -287,11 +306,8 @@ export async function viewPassEditor(ctx, clientId, passId) {
   const existing = passId ? passes.find((p) => p.id === passId) : null;
   if (passId && !existing) return ctx.viewNotFound();
 
-  // Przedłużenie: nowy karnet zaczyna się dzień po końcu bieżącego (jeśli jeszcze trwa), tego samego rodzaju.
+  // Nowy karnet domyślnie tego samego rodzaju co bieżący; jeśli bieżący ma jeszcze treningi, nowy czeka w kolejce.
   const current = currentPass(passes);
-  const renewFrom = current && current.status.state !== 'expired' && current.pass.ends_on >= todayIso()
-    ? addDays(current.pass.ends_on, 1) : todayIso();
-  const start = existing?.starts_on ?? renewFrom;
   let sessions = existing?.sessions ?? current?.pass.sessions ?? 8;
   const lastPriceFor = (n) => passes.find((p) => p.sessions === n && p.price != null)?.price ?? '';
 
@@ -305,20 +321,16 @@ export async function viewPassEditor(ctx, clientId, passId) {
         <section class="card stack">
           <span class="field-label">Rodzaj karnetu</span>
           <div class="row gap wrap" id="pass-types">
-            ${PASS_TYPES.map((n) => html`<button type="button" class="chip ${n === sessions ? 'active' : ''}" data-sessions="${n}">${trainings(n)} / mies.</button>`)}
+            ${PASS_TYPES.map((n) => html`<button type="button" class="chip ${n === sessions ? 'active' : ''}" data-sessions="${n}">${trainings(n)}</button>`)}
             <button type="button" class="chip ${PASS_TYPES.includes(sessions) ? '' : 'active'}" data-sessions="custom">Inny</button>
           </div>
           <label ${PASS_TYPES.includes(sessions) ? 'hidden' : ''} id="custom-wrap">Liczba treningów
             <input id="pass-sessions" type="number" min="1" max="100" inputmode="numeric" value="${sessions}"></label>
-          <div class="row gap">
-            <label class="grow">Od<input type="date" id="pass-start" value="${start}" required></label>
-            <label class="grow">Do<input type="date" id="pass-end" value="${existing?.ends_on ?? monthEnd(start)}" required></label>
-          </div>
-          <p class="muted small">Data końca ustawia się sama na miesiąc – możesz ją zmienić.</p>
           ${existing ? '' : html`<label>Wykorzystane już treningi
             <input id="pass-used" type="number" min="0" max="100" inputmode="numeric" value="0"></label>
-          <p class="muted small">Gdy ktoś jest w trakcie karnetu kupionego wcześniej: ustaw datę „Od” na początek karnetu
-            i wpisz, ile treningów już zrobił – od razu zostaną odbite.</p>`}
+          <p class="muted small">Gdy ktoś jest w trakcie karnetu kupionego wcześniej, wpisz, ile treningów już zrobił.</p>
+          ${current?.status.state === 'active' ? html`<p class="small pass-queue-note">Obecny karnet ma jeszcze ${trainings(current.status.left)} –
+            nowy zacznie się liczyć, gdy tamten się skończy.</p>` : ''}`}
         </section>
         <section class="card stack">
           <div class="row gap">
@@ -349,9 +361,6 @@ export async function viewPassEditor(ctx, clientId, passId) {
     }
     for (const chip of $('#pass-types').children) chip.classList.toggle('active', chip === button);
   });
-  $('#pass-start').addEventListener('change', (event) => {
-    if (event.target.value) $('#pass-end').value = monthEnd(event.target.value);
-  });
   $('#pass-paid').addEventListener('change', (event) => event.target.closest('label').classList.toggle('active', event.target.checked));
 
   $('#delete-pass')?.addEventListener('click', async () => {
@@ -368,12 +377,10 @@ export async function viewPassEditor(ctx, clientId, passId) {
   $('#pass-form').addEventListener('submit', async (event) => {
     event.preventDefault();
     const count = Number($('#pass-sessions').value);
-    const startsOn = $('#pass-start').value;
-    const endsOn = $('#pass-end').value;
+    const startsOn = existing?.starts_on ?? todayIso();
     const priceText = priceInput.value.trim();
     const price = priceText ? toNumber(priceText) : null;
     if (!Number.isInteger(count) || count < 1 || count > 100) return toast('Podaj liczbę treningów (1–100).', 'error');
-    if (!startsOn || !endsOn || endsOn < startsOn) return toast('Data końca nie może być przed datą początku.', 'error');
     if (priceText && (price == null || price < 0)) return toast('Niepoprawna cena.', 'error');
     const alreadyUsed = Number($('#pass-used')?.value || 0);
     if (!Number.isInteger(alreadyUsed) || alreadyUsed < 0 || alreadyUsed > count) {
@@ -383,10 +390,10 @@ export async function viewPassEditor(ctx, clientId, passId) {
     button.disabled = true;
     try {
       const id = await api.savePass({
-        id: existing?.id, client_id: clientId, sessions: count, starts_on: startsOn, ends_on: endsOn,
+        id: existing?.id, client_id: clientId, sessions: count, starts_on: startsOn, ends_on: null,
         price, paid: $('#pass-paid').checked, notes: $('#pass-notes').value.trim(),
       });
-      // Treningi zrobione przed założeniem karnetu w aplikacji – odbite z datą początku karnetu.
+      // Treningi zrobione przed założeniem karnetu w aplikacji.
       for (let i = 0; i < alreadyUsed; i += 1) await api.addPassUse(id, startsOn);
       toast('Karnet zapisany', 'success');
       ctx.go(`/passes/${clientId}`);

@@ -5,7 +5,7 @@ import { api } from './data/index.js';
 import { icons } from './icons.js';
 import { normalize, resolveExercise } from './library.js';
 import { exerciseThumb } from './media.js';
-import { currentPass, loadPasses } from './passes.js';
+import { afterUseMessage, currentPass, loadPasses } from './passes.js';
 import {
   BLOCK_TYPES, blockParams, blockResultLabel, blockResultPlaceholder, blockTitle, defaultBlock, formatClock, formatPace,
   isRun, isTimeBased, letterFor, parseClock, planLabels, planTargets, targetText,
@@ -247,7 +247,7 @@ export async function viewWorkoutEditor(ctx, { workoutId, planId, day, clientId 
   ]);
   // Nowy trening podopiecznego zapisany przez trenera można od razu odbić z karnetu.
   const pass = passes ? currentPass(passes) : null;
-  const passOption = pass && pass.status.state !== 'expired' ? pass : null;
+  const passOption = pass;
   const recent = recentWorkouts(allSets, { excludeId: existing?.workout.id });
 
   // Wersja robocza tego treningu (zapisywana w telefonie przy każdej zmianie).
@@ -757,7 +757,7 @@ export async function viewWorkoutEditor(ctx, { workoutId, planId, day, clientId 
       if (passOption && $('#wk-use-pass')?.checked) {
         try {
           await api.addPassUse(passOption.pass.id, performedOn, id);
-          toast(`Trening zapisany i odbity z karnetu – zostało ${passOption.status.left - 1} z ${passOption.pass.sessions}`, 'success');
+          toast(`Trening zapisany. ${afterUseMessage(passOption)}`, passOption.status.left <= 2 ? 'error' : 'success');
         } catch (error) {
           toast(`Trening zapisany, ale nie udało się odbić karnetu: ${error.message}`, 'error');
         }

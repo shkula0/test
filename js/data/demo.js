@@ -536,7 +536,7 @@ function seed() {
 
   // Karnet Anny: 8 treningów, dwa odbite z zapisanych treningów i jeden ręcznie.
   const annaPass = {
-    id: uid(), coach_id: coach.id, client_id: anna.id, sessions: 8, starts_on: daysAgo(15), ends_on: daysAgo(-15),
+    id: uid(), coach_id: coach.id, client_id: anna.id, sessions: 8, starts_on: daysAgo(15), ends_on: null,
     price: 600, paid: true, notes: '', created_at: now(),
   };
   const passes = [annaPass];

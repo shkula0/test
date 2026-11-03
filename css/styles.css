@@ -805,3 +805,10 @@ fieldset { margin: 0; min-width: 0; }
 .small-head { font-size: 1rem; margin: 0 0 8px; }
 .use-date { color: var(--muted); }
 .use-date input { margin-top: 4px; }
+.pass-alerts { border: 1.5px solid var(--accent); }
+.pass-alerts h2 svg { width: 18px; height: 18px; vertical-align: -3px; color: var(--accent); }
+.pass-alert { display: flex; align-items: center; gap: 8px; padding: 8px 0; }
+.pass-alert + .pass-alert { border-top: 1px solid var(--border); }
+.pass-alert a.grow { color: inherit; text-decoration: none; font-size: 0.9rem; }
+.pass-alert.last a.grow, .pass-alert.used a.grow { color: var(--danger); }
+.pass-queue-note { margin: 0; padding: 8px 10px; border-radius: 10px; background: var(--accent-soft); }

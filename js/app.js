@@ -8,7 +8,9 @@ import {
   BLOCK_TYPES, blankTarget, blockParams, blockTitle, cleanTargets, defaultBlock, isRun, letterFor, planLabels, planTargets,
   targetText, targetsSummary,
 } from './plan-utils.js';
-import { currentPass, loadPasses, passCard, viewClientPasses, viewPassEditor, viewPasses } from './passes.js';
+import {
+  bindPassAlerts, currentPass, loadPasses, passAlerts, passAlertsHtml, passCard, viewClientPasses, viewPassEditor, viewPasses,
+} from './passes.js';
 import {
   FREE_WORKOUT, discardDraft, draftBanner, formatSet, previousByExercise, recentWorkouts, recentWorkoutsHtml, viewWorkout,
   viewWorkoutEditor, workoutList,
@@ -380,11 +382,12 @@ async function submitting(form, action) {
 // ============================================================
 
 async function viewClients() {
-  const clients = await api.listClients();
+  const [clients, passes] = await Promise.all([api.listClients(), loadPasses()]);
   renderShell({
     title: 'Podopieczni',
     nav: 'clients',
     body: html`
+      ${passes ? passAlertsHtml(passAlerts(clients, passes)) : ''}
       <a class="card list-item self-card" href="#/client/${me.id}">
         <span class="avatar">${icons.logo}</span>
         <span class="grow"><strong>Moje treningi</strong><br><span class="muted small">Twoje plany, treningi i postępy</span></span>
@@ -401,6 +404,7 @@ async function viewClients() {
     `,
   });
   bindInvite();
+  if (passes) bindPassAlerts($('.content'), passes, viewClients);
 }
 
 function inviteCard() {

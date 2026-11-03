@@ -1,4 +1,4 @@
--- Karnety podopiecznych (np. 8 treningów w miesiącu) i odbite treningi.
+-- Karnety podopiecznych (np. 8 treningów) i odbite treningi. Karnet kończy się, gdy wykorzysta się treningi.
 -- Uruchom w Supabase: SQL Editor → New query → wklej → Run. Można uruchomić ponownie.
 
 create table if not exists public.passes (
@@ -7,13 +7,16 @@ create table if not exists public.passes (
   client_id  uuid not null references public.profiles (id) on delete cascade,
   sessions   int not null check (sessions > 0 and sessions <= 100),
   starts_on  date not null default current_date,
-  ends_on    date not null,
+  ends_on    date,
   price      numeric(8, 2) check (price >= 0),
   paid       boolean not null default false,
   notes      text not null default '',
   created_at timestamptz not null default now(),
   check (ends_on >= starts_on)
 );
+-- Karnety liczone tylko liczbą treningów – data końca nie jest potrzebna (dla baz z pierwszą wersją tego pliku).
+alter table public.passes alter column ends_on drop not null;
+
 create index if not exists passes_client_idx on public.passes (client_id, ends_on);
 create index if not exists passes_coach_idx on public.passes (coach_id);
 
