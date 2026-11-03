@@ -803,3 +803,5 @@ fieldset { margin: 0; min-width: 0; }
 .field-label { font-size: 0.85rem; color: var(--muted); font-weight: 600; }
 .pass-paid { align-self: flex-end; padding: 10px 14px; }
 .small-head { font-size: 1rem; margin: 0 0 8px; }
+.use-date { color: var(--muted); }
+.use-date input { margin-top: 4px; }

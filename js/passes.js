@@ -231,6 +231,8 @@ export async function viewClientPasses(ctx, clientId) {
           ${current.status.state !== 'expired' ? html`<button type="button" class="btn grow" id="use-pass">${icons.check} Odbij trening</button>` : ''}
           <a class="btn btn-outline" href="#/passes/${clientId}/edit?id=${current.pass.id}">${icons.edit} Edytuj</a>
         </div>
+        <label class="use-date small">Data odbicia (dla zaległych treningów zmień na wcześniejszą)
+          <input type="date" id="use-date" value="${todayIso()}"></label>
         ${!current.pass.paid ? html`<button type="button" class="btn btn-outline btn-block" id="mark-paid">${icons.check} Oznacz jako opłacony</button>` : ''}
         <section class="card"><h2 class="small-head">Odbite treningi</h2>${usesList(current.pass)}</section>`
         : ctx.emptyState('Ten podopieczny nie ma jeszcze karnetu.')}
@@ -248,7 +250,7 @@ export async function viewClientPasses(ctx, clientId) {
   $('#use-pass')?.addEventListener('click', async (event) => {
     event.currentTarget.disabled = true;
     try {
-      await usePass(current);
+      await usePass(current, $('#use-date').value || todayIso());
     } catch (error) {
       toast(error.message, 'error');
     }
@@ -313,6 +315,10 @@ export async function viewPassEditor(ctx, clientId, passId) {
             <label class="grow">Do<input type="date" id="pass-end" value="${existing?.ends_on ?? monthEnd(start)}" required></label>
           </div>
           <p class="muted small">Data końca ustawia się sama na miesiąc – możesz ją zmienić.</p>
+          ${existing ? '' : html`<label>Wykorzystane już treningi
+            <input id="pass-used" type="number" min="0" max="100" inputmode="numeric" value="0"></label>
+          <p class="muted small">Gdy ktoś jest w trakcie karnetu kupionego wcześniej: ustaw datę „Od” na początek karnetu
+            i wpisz, ile treningów już zrobił – od razu zostaną odbite.</p>`}
         </section>
         <section class="card stack">
           <div class="row gap">
@@ -369,13 +375,19 @@ export async function viewPassEditor(ctx, clientId, passId) {
     if (!Number.isInteger(count) || count < 1 || count > 100) return toast('Podaj liczbę treningów (1–100).', 'error');
     if (!startsOn || !endsOn || endsOn < startsOn) return toast('Data końca nie może być przed datą początku.', 'error');
     if (priceText && (price == null || price < 0)) return toast('Niepoprawna cena.', 'error');
+    const alreadyUsed = Number($('#pass-used')?.value || 0);
+    if (!Number.isInteger(alreadyUsed) || alreadyUsed < 0 || alreadyUsed > count) {
+      return toast(`Wykorzystane treningi: od 0 do ${count}.`, 'error');
+    }
     const button = event.submitter ?? $('#pass-form [type=submit]');
     button.disabled = true;
     try {
-      await api.savePass({
+      const id = await api.savePass({
         id: existing?.id, client_id: clientId, sessions: count, starts_on: startsOn, ends_on: endsOn,
         price, paid: $('#pass-paid').checked, notes: $('#pass-notes').value.trim(),
       });
+      // Treningi zrobione przed założeniem karnetu w aplikacji – odbite z datą początku karnetu.
+      for (let i = 0; i < alreadyUsed; i += 1) await api.addPassUse(id, startsOn);
       toast('Karnet zapisany', 'success');
       ctx.go(`/passes/${clientId}`);
     } catch (error) {
