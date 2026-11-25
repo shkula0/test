@@ -337,6 +337,9 @@ function translateError(message) {
   if (/exceeded the maximum allowed size|Payload too large/i.test(message)) return 'Plik jest za duży (maks. 50 MB).';
   if (message.startsWith('Password should be')) return 'Hasło musi mieć co najmniej 6 znaków.';
   if (/rate limit|only request this after/i.test(message)) return 'Za dużo prób – odczekaj chwilę i spróbuj ponownie.';
+  if (/ends_on/.test(message)) {
+    return 'Karnety bez dat wymagają poprawki bazy – w Supabase SQL Editor uruchom: alter table public.passes alter column ends_on drop not null;';
+  }
   if (/pass(es|_uses)/.test(message) && /schema cache|does not exist/.test(message)) {
     return 'Karnety wymagają aktualizacji bazy – uruchom w Supabase plik 010_karnety.sql.';
   }
