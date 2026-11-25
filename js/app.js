@@ -8,6 +8,7 @@ import {
   BLOCK_TYPES, blankTarget, blockParams, blockTitle, cleanTargets, defaultBlock, isRun, letterFor, planLabels, planTargets,
   targetText, targetsSummary,
 } from './plan-utils.js';
+import { viewRecipe, viewRecipeEditor, viewRecipes } from './recipes.js';
 import { bindMessageForm, bindPush, disablePush, messageForm, notify, pushPrompt, pushSettingsCard } from './push.js';
 import {
   bindPassAlerts, currentPass, loadPasses, passAlerts, passAlertsHtml, passCard, viewClientPasses, viewPassEditor, viewPasses,
@@ -100,6 +101,10 @@ async function router() {
     if (section === 'passes' && id && action === 'edit' && isCoach) return viewPassEditor(ctx, id, params.get('id'));
     if (section === 'passes' && id && isCoach) return viewClientPasses(ctx, id);
     if (section === 'message' && isCoach) return viewMessage(id ?? null);
+    if (section === 'recipes') return viewRecipes(ctx);
+    if (section === 'recipe' && id === 'new' && isCoach) return viewRecipeEditor(ctx, null);
+    if (section === 'recipe' && id && action === 'edit' && isCoach) return viewRecipeEditor(ctx, id);
+    if (section === 'recipe' && id) return viewRecipe(ctx, id);
     if (section === 'routines') return viewRoutines(ctx);
     if (section === 'routine' && id === 'new' && isCoach) return viewRoutineEditor(ctx, null);
     if (section === 'routine' && id && action === 'edit' && isCoach) return viewRoutineEditor(ctx, id);
@@ -154,8 +159,9 @@ function renderShell({ title, back, body, nav }) {
 function navBar(active) {
   const items = me.role === 'coach'
     ? [['clients', '/', 'Podopieczni', icons.users], ['library', '/exercises', 'Ćwiczenia', icons.logo],
-      ['routines', '/routines', 'Rutyny', icons.play], ['passes', '/passes', 'Karnety', icons.ticket], ['account', '/account', 'Konto', icons.user]]
-    : [['plans', '/', 'Plany', icons.list], ['routines', '/routines', 'Rutyny', icons.play],
+      ['routines', '/routines', 'Rutyny', icons.play], ['recipes', '/recipes', 'Przepisy', icons.recipe],
+      ['passes', '/passes', 'Karnety', icons.ticket], ['account', '/account', 'Konto', icons.user]]
+    : [['plans', '/', 'Plany', icons.list], ['routines', '/routines', 'Rutyny', icons.play], ['recipes', '/recipes', 'Przepisy', icons.recipe],
       ['progress', '/progress', 'Postępy', icons.chart], ['account', '/account', 'Konto', icons.user]];
   return html`<nav class="tabbar">
     ${items.map(([key, href, label, icon]) => html`

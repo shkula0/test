@@ -821,3 +821,33 @@ fieldset { margin: 0; min-width: 0; }
 .push-prompt { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: 1.5px solid var(--accent); }
 .push-prompt-icon { color: var(--accent); display: grid; place-items: center; }
 .push-prompt .icon-btn { flex: none; color: var(--muted); }
+
+/* ============================================================
+   Przepisy
+   ============================================================ */
+.macros { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; text-align: center; margin: 4px 0; }
+.macro { display: flex; flex-direction: column; padding: 8px 4px; border-radius: 12px; background: var(--accent-soft); }
+.macro strong { font-size: 1.15rem; font-variant-numeric: tabular-nums; }
+.macro small { font-size: 0.75rem; font-weight: 500; }
+.recipe-head { align-items: center; }
+.recipe-head h2 { margin: 0; }
+.servings { display: flex; align-items: center; gap: 4px; border: 1px solid var(--border); border-radius: 999px; padding: 2px; }
+.servings .icon-btn { width: 32px; height: 32px; font-size: 1.2rem; }
+.servings span { min-width: 72px; text-align: center; font-size: 0.85rem; font-weight: 600; }
+.ingredients, .recipe-steps { list-style: none; margin: 8px 0; padding: 0; }
+.ingredients li { display: flex; align-items: center; gap: 10px; padding: 9px 0; border-bottom: 1px solid var(--border); cursor: pointer; }
+.ingredients .tick { width: 22px; height: 22px; border-radius: 6px; border: 2px solid var(--accent); display: grid; place-items: center; flex: none; color: var(--accent-text); }
+.ingredients .tick svg { width: 14px; height: 14px; }
+.ingredients li.ticked .tick { background: var(--accent); }
+.ingredients li.ticked .grow, .ingredients li.ticked .amount { text-decoration: line-through; color: var(--muted); }
+.ingredients .amount { font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.recipe-steps li { display: flex; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--border); cursor: pointer; }
+.step-no { flex: none; width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; font-weight: 700; font-size: 0.85rem; background: var(--accent-soft); color: var(--accent); }
+.recipe-steps li.done .step-no { background: var(--accent); color: var(--accent-text); }
+.recipe-steps li.done .grow { color: var(--muted); text-decoration: line-through; }
+.ingredient-edit { display: grid; grid-template-columns: 84px 1fr auto; gap: 6px; align-items: center; }
+.step-edit { display: grid; grid-template-columns: auto 1fr auto; gap: 8px; align-items: start; }
+.grid-4 { grid-template-columns: repeat(4, 1fr); }
+@media (max-width: 420px) { .grid-4 { grid-template-columns: repeat(2, 1fr); } }
+.tabbar a span { white-space: nowrap; }
+.tabbar:has(a:nth-child(6)) a { font-size: 0.68rem; }

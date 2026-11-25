@@ -270,6 +270,44 @@ export function createDemoBackend() {
       save();
     },
 
+    async listRecipes() {
+      const me = db.profiles.find((p) => p.id === db.session);
+      return db.recipes.filter((r) => r.coach_id === db.session || r.coach_id === me?.coach_id)
+        .sort((a, b) => b.created_at.localeCompare(a.created_at));
+    },
+
+    async getRecipe(id) {
+      return db.recipes.find((r) => r.id === id) ?? null;
+    },
+
+    async saveRecipe(recipe, { file, removeMedia } = {}) {
+      const fields = {
+        title: recipe.title, category: recipe.category, prep_min: recipe.prep_min, servings: recipe.servings,
+        kcal: recipe.kcal, protein: recipe.protein, carbs: recipe.carbs, fat: recipe.fat,
+        description: recipe.description, video_url: recipe.video_url, ingredients: recipe.ingredients, steps: recipe.steps,
+      };
+      if (file) {
+        if (file.size > DEMO_MAX_MEDIA) throw new Error('W trybie demo plik może mieć maks. 3 MB.');
+        Object.assign(fields, { media_url: await readAsDataUrl(file), media_type: file.type.startsWith('video/') ? 'video' : 'image' });
+      } else if (removeMedia) {
+        Object.assign(fields, { media_url: null, media_type: null });
+      }
+      let saved = recipe.id && db.recipes.find((r) => r.id === recipe.id);
+      if (saved) {
+        Object.assign(saved, fields, { updated_at: now() });
+      } else {
+        saved = { media_url: null, media_type: null, ...fields, id: uid(), coach_id: db.session, created_at: now(), updated_at: now() };
+        db.recipes.push(saved);
+      }
+      save();
+      return saved.id;
+    },
+
+    async deleteRecipe(id) {
+      db.recipes = db.recipes.filter((r) => r.id !== id);
+      save();
+    },
+
     async listCompletions({ clientId, routineId }) {
       const me = db.profiles.find((p) => p.id === db.session);
       const visible = (c) => c.client_id === db.session
@@ -383,6 +421,7 @@ function load() {
       data.routines ??= [];
       data.routine_completions ??= [];
       data.passes ??= [];
+      data.recipes ??= [];
       data.pass_uses ??= [];
       data.workout_sets ??= [];
       return data;
@@ -540,6 +579,22 @@ function seed() {
     created_at: '2026-10-05T10:00:00Z', updated_at: now(),
   };
   const routines = [hips, shoulders];
+  const recipes = [{
+    id: uid(), coach_id: coach.id, title: 'Owsianka białkowa z owocami', category: 'Śniadanie', prep_min: 10, servings: 1,
+    kcal: 520, protein: 38, carbs: 62, fat: 12,
+    description: 'Szybkie śniadanie po porannym treningu. Można przygotować wieczorem i zjeść na zimno.',
+    video_url: '', media_url: null, media_type: null,
+    ingredients: [
+      { name: 'Płatki owsiane', amount: '60 g' }, { name: 'Mleko 2%', amount: '250 ml' }, { name: 'Odżywka białkowa', amount: '30 g' },
+      { name: 'Banan', amount: '1 szt.' }, { name: 'Borówki', amount: '50 g' }, { name: 'Masło orzechowe', amount: '10 g' },
+    ],
+    steps: [
+      'Płatki zalej mlekiem i gotuj 3–4 minuty, mieszając.',
+      'Zdejmij z ognia i odczekaj minutę, potem wmieszaj odżywkę – nie zwarzy się.',
+      'Przełóż do miski, dodaj pokrojonego banana, borówki i masło orzechowe.',
+    ],
+    created_at: '2026-10-10T10:00:00Z', updated_at: now(),
+  }];
   const routine_completions = [
     { id: uid(), routine_id: hips.id, client_id: anna.id, completed_on: daysAgo(2), created_at: now() },
   ];
@@ -566,6 +621,7 @@ function seed() {
     routine_completions,
     passes,
     pass_uses,
+    recipes,
     plan_exercises: exercises,
     body_metrics,
     lift_records,

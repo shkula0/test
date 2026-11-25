@@ -1,6 +1,6 @@
 // Service worker: zapisuje pliki aplikacji, żeby działała szybko i bez internetu.
 // Po zmianie plików aplikacji podbij numer wersji, aby telefony pobrały nową wersję.
-const CACHE = 'trener-v33';
+const CACHE = 'trener-v34';
 const ASSETS = [
   './',
   'index.html',
@@ -21,6 +21,7 @@ const ASSETS = [
   'js/routines.js',
   'js/passes.js',
   'js/push.js',
+  'js/recipes.js',
   'js/data/index.js',
   'js/data/demo.js',
   'js/data/supabase.js',

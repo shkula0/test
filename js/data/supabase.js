@@ -229,6 +229,36 @@ export function createSupabaseBackend({ supabaseUrl, supabaseAnonKey }) {
       if (routine?.media_path) await sb.storage.from(MEDIA_BUCKET).remove([routine.media_path]);
     },
 
+    async listRecipes() {
+      return run(sb.from('recipes').select('*').order('created_at', { ascending: false }));
+    },
+
+    async getRecipe(id) {
+      return run(sb.from('recipes').select('*').eq('id', id).maybeSingle());
+    },
+
+    async saveRecipe(recipe, { file, removeMedia } = {}) {
+      const fields = {
+        title: recipe.title, category: recipe.category, prep_min: recipe.prep_min, servings: recipe.servings,
+        kcal: recipe.kcal, protein: recipe.protein, carbs: recipe.carbs, fat: recipe.fat,
+        description: recipe.description, video_url: recipe.video_url, ingredients: recipe.ingredients, steps: recipe.steps,
+      };
+      const previous = recipe.id ? await this.getRecipe(recipe.id) : null;
+      if (file) Object.assign(fields, await uploadMedia(file));
+      else if (removeMedia) Object.assign(fields, { media_path: null, media_url: null, media_type: null });
+      const saved = recipe.id
+        ? await run(sb.from('recipes').update(fields).eq('id', recipe.id).select().single())
+        : await run(sb.from('recipes').insert(fields).select().single());
+      if (previous?.media_path && (file || removeMedia)) await sb.storage.from(MEDIA_BUCKET).remove([previous.media_path]);
+      return saved.id;
+    },
+
+    async deleteRecipe(id) {
+      const recipe = await this.getRecipe(id);
+      await run(sb.from('recipes').delete().eq('id', id));
+      if (recipe?.media_path) await sb.storage.from(MEDIA_BUCKET).remove([recipe.media_path]);
+    },
+
     // Wykonania rutyn: podopiecznego (clientId) albo wszystkich podopiecznych przy danej rutynie (routineId).
     async listCompletions({ clientId, routineId }) {
       let query = sb.from('routine_completions').select('*').order('completed_on', { ascending: false });
@@ -337,6 +367,9 @@ function translateError(message) {
   if (/exceeded the maximum allowed size|Payload too large/i.test(message)) return 'Plik jest za duży (maks. 50 MB).';
   if (message.startsWith('Password should be')) return 'Hasło musi mieć co najmniej 6 znaków.';
   if (/rate limit|only request this after/i.test(message)) return 'Za dużo prób – odczekaj chwilę i spróbuj ponownie.';
+  if (/recipes/.test(message) && /schema cache|does not exist/.test(message)) {
+    return 'Przepisy wymagają aktualizacji bazy – uruchom w Supabase plik 012_przepisy.sql.';
+  }
   if (/ends_on/.test(message)) {
     return 'Karnety bez dat wymagają poprawki bazy – w Supabase SQL Editor uruchom: alter table public.passes alter column ends_on drop not null;';
   }
